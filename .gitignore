@@ -1,0 +1,20 @@
+# Build artifacts
+*.riscv
+*.dump
+*.slm
+*.o
+*.a
+exp.dump
+output.csv
+
+# PMU firmware build
+tests/*/pmu_firmware/build/
+tests/*/text_section.bin
+tests/*/data_rodata_bss.bin
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
