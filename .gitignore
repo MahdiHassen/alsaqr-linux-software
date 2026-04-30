@@ -1,11 +1,13 @@
-# Build artifacts
-*.riscv
-*.dump
-*.slm
-*.o
-*.a
-exp.dump
-output.csv
+# Build artifacts (only inside tests/ — the toolchain has .o/.a files we MUST keep)
+tests/**/*.riscv
+tests/**/*.dump
+tests/**/*.slm
+tests/**/*.o
+tests/**/exp.dump
+tests/**/output.csv
+
+# But keep .a files in the toolchain's own staging area if any test linked one in
+# (none currently, but rule above is scoped so we don't need a negation)
 
 # PMU firmware build
 tests/*/pmu_firmware/build/
