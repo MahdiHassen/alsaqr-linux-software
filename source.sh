@@ -34,6 +34,12 @@ export PATH="$ALSAQR_ROOT/openocd/bin:$PATH"
 export OPENOCD_SCRIPTS="$ALSAQR_ROOT/openocd/tcl"
 export LD_LIBRARY_PATH="$ALSAQR_ROOT/openocd/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
+# Vendored Python 3.12 runtime (GDB was built against libpython3.12; ship it
+# so hosts without python3.12 can still run gdb without installing anything).
+# PYTHONHOME is *not* exported here — it would break the system python3 if the
+# host has a different version. Instead, the gdb wrapper sets it locally.
+export LD_LIBRARY_PATH="$ALSAQR_ROOT/toolchain/python-runtime/lib:$LD_LIBRARY_PATH"
+
 # GDB (used by load.sh)
 export GDB_BIN="$RISCV/bin/riscv64-unknown-elf-gdb"
 
@@ -56,9 +62,9 @@ if [ ! -x "$ALSAQR_ROOT/openocd/bin/openocd" ]; then
     echo "WARN: openocd not found at $ALSAQR_ROOT/openocd/bin/openocd" >&2
 fi
 
-# Optional: pyelftools (used by some build steps)
-python3 -c "import elftools" 2>/dev/null || \
-    echo "NOTE: python3-pyelftools not installed (sudo apt install python3-pyelftools)"
+# Vendored pyelftools (used by tests/inc/scripts/stim_utils.py and similar).
+# Append rather than prepend so a system install still wins if present.
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$ALSAQR_ROOT/scripts/vendor"
 
 echo "AlSaqr environment ready."
 echo "  ALSAQR_ROOT=$ALSAQR_ROOT"

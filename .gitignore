@@ -20,3 +20,8 @@ tests/*/data_rodata_bss.bin
 *.swp
 *.swo
 .DS_Store
+
+# Don't track Python bytecode generated under vendored deps
+# (the stdlib under toolchain/python-runtime/ already ships its own .pyc).
+scripts/vendor/**/__pycache__/
+scripts/vendor/**/*.pyc

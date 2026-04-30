@@ -11,8 +11,9 @@ Clone, source, build, run — no system-wide installs needed.
 > into `toolchain/` and `openocd/bin/`.
 
 > **Host requirements:** standard Linux dev environment — `bash`, `make`,
-> `python3` (with `pyelftools`), and a working glibc. Everything else
-> (compiler, linker, GDB, OpenOCD, .so deps) is in this bundle.
+> `python3`, and a working glibc. Everything else (compiler, linker, GDB,
+> OpenOCD, libpython3.12, pyelftools, .so deps) is in this bundle. No
+> system-level packages need to be installed.
 
 ---
 
@@ -33,9 +34,13 @@ alsaqr-software/
 │   │                               #  libudev, libhidapi-hidraw, libcap)
 │   ├── openocd.cfg
 │   └── tcl/                        # OpenOCD scripts
+├── toolchain/python-runtime/       # bundled libpython3.12 + stdlib (used by
+│                                   #  the GDB wrapper so hosts without
+│                                   #  python3.12 still work)
 ├── scripts/
 │   ├── build.sh                    # `make clean <target> fpga=1` wrapper
-│   └── load.sh                     # one-shot load + run via OpenOCD + GDB
+│   ├── load.sh                     # one-shot load + run via OpenOCD + GDB
+│   └── vendor/                     # vendored Python deps (pyelftools)
 └── tests/
     ├── common.mk                   # shared Makefile rules (SW_HOME points here)
     ├── inc/                        # shared headers
@@ -175,6 +180,10 @@ $GDB_BIN tests/pmu_mempol_synth/pmu_bench.riscv
 ## Troubleshooting
 
 - **`riscv64-unknown-elf-gcc: command not found`** — you didn't `source ./source.sh`
+- **`libpython3.12.so.1.0: cannot open shared object file`** — you're invoking
+  the real GDB binary directly. Use `$GDB_BIN` (or `riscv64-unknown-elf-gdb`
+  on the PATH) — the wrapper script sets `LD_LIBRARY_PATH` and `PYTHONHOME`
+  to point at the bundled python runtime under `toolchain/python-runtime/`.
 - **`riscv-none-elf-gcc: No such file or directory`** in PMU firmware build —
   the shim symlinks broke. Recreate them under `toolchain/shim/` pointing at
   the rv32 toolchain.
