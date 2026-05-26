@@ -1,0 +1,8 @@
+thread 2
+set $pc = 0x0000000080000000
+
+thread 3
+set $pc = 0x0000000080000000
+
+thread 4
+set $pc = 0x0000000080000000

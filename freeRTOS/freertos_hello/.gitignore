@@ -1,0 +1,7 @@
+*.swn
+*.swm
+*.swp
+*.swo
+build
+*.img
+
