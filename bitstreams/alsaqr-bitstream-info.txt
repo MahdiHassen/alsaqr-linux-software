@@ -1,0 +1,4 @@
+This doc contains info on each bitstream.. if you generate a bitstream make sure to add relvant info here
+
+alsaqr_xilinx_48.bit: 38k UART (hardwired), 10Mhz, 1MB DSPM- LINUX BOOTED
+(NEWEST) alsaqr_xilinx_may18.bit: EVUs KINDA fixed
