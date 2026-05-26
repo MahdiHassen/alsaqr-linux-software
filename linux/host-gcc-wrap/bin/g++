@@ -1,0 +1,2 @@
+#!/bin/bash
+exec "${HOST_GXX_REAL:-/usr/bin/g++}" "$@"

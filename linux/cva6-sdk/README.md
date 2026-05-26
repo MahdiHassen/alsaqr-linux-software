@@ -1,0 +1,285 @@
+# CVA6 SDK
+
+This repository houses a set of RISCV tools for the [CVA6 core](https://github.com/openhwgroup/cva6). Most importantly it **does not contain openOCD**.
+
+Included tools:
+* [Spike](https://github.com/riscv/riscv-isa-sim/), the ISA simulator
+* [riscv-tests](https://github.com/riscv/riscv-tests/), a battery of ISA-level tests
+* [riscv-fesvr](https://github.com/riscv/riscv-fesvr/), the host side of a simulation tether that services system calls on behalf of a target machine
+* [u-boot](https://github.com/openhwgroup/u-boot/)
+* [opensbi](https://github.com/riscv/opensbi/), the open-source reference implementation of the RISC-V Supervisor Binary Interface (SBI)
+
+## Quickstart
+
+Requirements Ubuntu:
+```console
+$ sudo apt-get install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev libusb-1.0-0-dev gawk build-essential bison flex texinfo gperf libtool patchutils bc zlib1g-dev device-tree-compiler pkg-config libexpat-dev
+```
+
+Requirements Fedora:
+```console
+$ sudo dnf install autoconf automake @development-tools curl dtc libmpc-devel mpfr-devel gmp-devel libusb-devel gawk gcc-c++ bison flex texinfo gperf libtool patchutils bc zlib-devel expat-devel
+```
+You can select the XLEN by setting it in the Makefile.
+Then compile the Linux images with
+
+```console
+$ git submodule update --init --recursive
+$ make images
+```
+
+## Environment Variables
+
+If you want to cross compile other projects for this target you can add `buildroot/output/host/bin/` to your path in order to later make use of the installed tools after compiling them with :
+
+```bash
+$ make all
+```
+
+## Linux
+You can also build a compatible Linux image that boots Linux on the CVA6 fpga mapping:
+```bash
+$ make vmlinux # make only the elf Linux image
+$ make uImage.bin # generate the Linux image with the u-boot wrapper
+$ make fw_payload.bin # generate the OpenSBI + U-Boot payload
+```
+
+Or you can build everything directly with:
+
+```bash
+$ make images # generates all images and save them in install$(XLEN)
+```
+
+## Spike
+You can test your image on spike 
+First, build spike with:
+
+```bash
+$ make isa-sim
+```
+
+Build the OpenSBI firmware with the Linux payload for the Spike platform:
+
+```bash
+$ make spike_payload
+```
+
+You can now launch Spike with OpenSBI + Linux
+
+```bash
+$ install$(XLEN)/bin/spike install$(XLEN)/spike_fw_payload.elf
+```
+
+Spike allows trace logging
+
+```bash
+$ install$(XLEN)/bin/spike --log-commits install$(XLEN)/spike_fw_payload.elf 2> trace.log.commits
+```
+
+### Booting from an SD card
+
+First compile the SBI firmware and the Linux image:
+
+```bash
+$ make images
+```
+
+The flash-sdcard Makefile recipe handle the creation of the GPT partition table and the flashing of fw\_payload.bin and uImage at there correct offset. **Be careful to set the correct SDDEVICE.**
+
+```bash
+$ sudo -E make flash-sdcard SDDEVICE=/dev/sdb
+```
+
+## OS X
+
+Similar steps as above but flashing is sligthly different. Get `sgdisk` using `homebrew`.
+
+```
+$ brew install gptfdisk
+$ sudo -E make flash-sdcard SDDEVICE=/dev/sdb
+```
+
+## OpenOCD - Optional
+If you really need and want to debug on an FPGA/ASIC target the installation instructions are [here](https://github.com/riscv/riscv-openocd).
+
+## Ethernet SSH
+This patch incorporates an overlay to overcome the painful delay in generating public/private key pairs on the target
+(which happens every time because the root filing system is volatile). Do not use these keys on more than one device.
+Likewise it also incorporates a script (rootfs/etc/init.d/S40fixup) which replaces the MAC address with a valid Digilent
+value. This should be replaced by the unique value on the back of the Genesys2 board if more than one device is used on
+the same VLAN. Needless to say both of these values would need regenerating for anything other than development use.
+
+# Docker Container
+
+There is a pretty basic Docker container you can use to get a stable build environment to build the image.
+
+```
+$ cd container
+$ sudo docker build -t ghcr.io/pulp-platform/ariane-sdk -f Dockerfile .
+```
+
+And build the image:
+```
+$ cd ..
+$ sudo docker run -it -v `pwd`:/repo -w /repo -u $(id -u ${USER}):$(id -g ${USER}) ghcr.io/pulp-platform/ariane-sdk
+```
+
+# AlSaqr
+
+## Context
+
+This "guide" provides some context and the steps needed
+
+  1. to generate the `fw_payload.elf` image containing OpenSBI + Linux,
+  2. to run Linux on FPGA and possibly also on the chip.
+
+Some context: Linux's boot procedure is pretty much standardized, the default flow for embedded systems is the one
+highlighed in slide 7 [here](https://riscv.org/wp-content/uploads/2019/12/Summit_bootflow.pdf), and it is the one also leveraged by the
+default version of this repo:
+
+  1. the zero-stage-bootloader (ZSBL) is the bare-metal code inside the BootRom, which should load the first-stage-bootloader (FSBL) and the device binary tree (DTB)
+  into the scratchpad
+  2. the FSBL is a bare-metal application, generated by UBoot (`u-boot-spl`) according to the target platform configuration stored there
+  3. in Shaheen, the ZSBL was basically loading the FSBL through JTAG (for example)
+  4. the FSBL would load from Xilinx's SPI flash the image containing OpenSBI with UBoot as payload
+  5. finally UBoot would load Linux's image from the flash and then jump there.
+
+This bootflow is the one supported at this commit [here](https://github.com/AlSaqr-platform/cva6-sdk/tree/shaheen-v1.0), as you can see from the modifications done to UBoot
+to be aligned with the FPGA hardware (i.e., to know which and where the SPI flash is and so on).
+
+## Guide
+
+However, for alsaqr the hardware is under development and the boot-flow is dependent on opentitan. Thus, we just want to:
+
+  1. generate the `fw_payload.elf` image containing OpenSBI + Linux,
+  2. load the image and the DTB
+  3. run Linux on FPGA (and possibly also on the chip).
+
+In pratice, the ZSBL will be the JTAG loading the image, and then we'll jump directly to the OpenSBI and then to the linux kernel. To do so:
+
+Requirements Ubuntu:
+```console
+$ sudo apt-get install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev libusb-1.0-0-dev gawk build-essential bison flex texinfo gperf libtool patchutils bc zlib1g-dev device-tree-compiler pkg-config libexpat-dev
+```
+
+Requirements Fedora:
+```console
+$ sudo dnf install autoconf automake @development-tools curl dtc libmpc-devel mpfr-devel gmp-devel libusb-devel gawk gcc-c++ bison flex texinfo gperf libtool patchutils bc zlib-devel expat-devel
+```
+You can select the XLEN by setting it in the Makefile.
+Then compile the Linux images with
+
+```console
+$ git submodule update --init --recursive
+$ make uImage
+```
+
+This will generate Linux's image, containing also the root file system, at `install64/Image`.
+
+This image will be opensbi's payload. To generate the full image:
+
+```
+export TARGET_FREQ=<frequency-of-the-bitstream> NUM_HARTS=<number-of-harts>
+make fw_payload.bin
+```
+
+The default frequency is 40MHz, for the quad-core it has been reduced to 20MHz.
+
+At this point, we'll have `fw_payload.elf` inside the `install64` folder, which is the desidered binary.
+
+It is only left to generate the dtb:
+
+```
+make alsaqr.dtb
+```
+
+Please note that you need to load it at the address defined in openSBI (`FW_PAYLOAD_FDT_ADDR`
+in the `platform/fpga/alsaqr/objects.mk` file).
+
+This is achieved by the `load_image alsaqr.dtb 0x81800000` inside `scripts/openocd_smp.cfg` config:
+
+```
+load_image alsaqr.dtb 0x81800000
+```
+
+## Important
+
+Configure your screen/minicom accordingly to what is written in the `.dtb` and opensbi config.
+
+The baudrate is set in OpenSBI and the dtb according to this check:
+
+```
+if(TARGET_FREQ>=50000000)
+  baudrate = 115200
+else if (TARGET_FREQ>=40000000)
+  baudrate = 38400
+else
+  baudrate = 9600
+endif
+```
+
+To speed up the code loading, try to increase the adapter speed inside the openocd cfg.
+
+### Quad-core linux boot
+
+Last bitstream tested from [this](https://github.com/AlSaqr-platform/he-soc/tree/8fd2ea317574b80f90267334bcd26e13caf46129) commit.
+
+First, install Openocd [as mentioned in the he-soc repository](https://github.com/AlSaqr-platform/he-soc/tree/8fd2ea317574b80f90267334bcd26e13caf46129/hardware/fpga#install-openocd),
+and [connect the Olimex](https://github.com/AlSaqr-platform/he-soc/blob/8fd2ea317574b80f90267334bcd26e13caf46129/hardware/fpga/openocd/CVA6_jtag_connection.png).
+
+At this point, load the bitstream. Then, halt the cores:
+
+```
+sudo <path-to-openocd-binary> -f scripts/openocd_smp.cfg
+```
+
+With a second terminal, leverage `gdb` to load the core and start the execution:
+
+```
+riscv64-unknown-elf-gdb -x scripts/launch_4_core
+```
+
+With a third terminal, open the screen, with baudrate 9600. Once the load completes, you should start seeing OpenSBI and Linux boot.
+
+
+### Boot on the HyperRAM
+
+Let's define the single chip HyperRAM size as `HypS`, 8MiB in our case.
+
+On the FMC on FPGA we have two parallel HyperBUSes with two Chip selects each. So, four HyperRAMs are instantiated.
+
+The first two work in parallel and handle the first 16MiB, the second two map the upper 16MiB.
+
+This version of the sdk generates a linux image that works with 32MB of RAMs
+
+Setup of the HyperRAM controller: the controller has a set of registers that need to be configured before issuing transactions.
+
+In Alsaqr, the base address is `0x1a101000`
+
+| Register         | Address | Content               |
+| ---------------- | ------- | --------------------- |
+| Address Mask MSB | `0x18`  | `log2(HypS*2)`        |
+| Start Addr CS 0  | `0x40`  | `0x80000000`          |
+| End Addr CS 0    | `0x44`  | `0x80000000 + HypS*2` |
+| Start Addr CS 1  | `0x48`  | `0x80000000 + HypS*2` |
+| End Addr CS 1    | `0x4C`  | `0x80000000 + HypS*4` |
+
+You should program them before loading the device binary tree with openocd:
+
+```
+init
+reset halt
+
+halt
+
+mww 0x1a101018 0x18
+
+load_image alsaqr.dtb 0x81800000
+```
+
+When using the FMC, the bitstream works at 10MHz and the baudrate has to be set to 9600. Booting Linux on the Hyper is
+considerably slower than the DDR.
+
+### QEMU
+
+`qemu-system-riscv64 -M virt -m 256M -nographic     -bios opensbi/build/platform/generic/firmware/fw_jump.bin       -kernel install64/Image         -append "root=/dev/vda rw console=ttyS0"`

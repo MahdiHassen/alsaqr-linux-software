@@ -1,0 +1,53 @@
+// Copyright 2021 ETH Zurich and University of Bologna.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+// TODO(niwis) auto generate
+/dts-v1/;
+/ {
+  #address-cells = <2>;
+  #size-cells = <2>;
+  compatible = "eth,occamy-dev";
+  model = "eth,occamy";
+  chosen {
+    stdout-path = "/soc/uart@40000000:targetbaud";
+  };
+  memory@1C000000 {
+    device_type = "memory";
+    reg = <0x0 0x1C000000 0x0 0x1000>;
+  };
+  memory@80000000 {
+    device_type = "memory";
+    reg = <0x0 0x80000000 0x0 mem_size>;
+  };
+  cpus {
+    #address-cells = <1>;
+    #size-cells = <0>;
+    timebase-frequency = <halffreq>;
+    target_cpus
+  };
+  soc: soc {
+    #address-cells = <2>;
+    #size-cells = <2>;
+    compatible = "eth,ariane-bare-soc", "simple-bus";
+    ranges;
+    ariane_peripherals
+    uart@40000000 {
+      compatible = "ns16550";
+      reg = <0x0 0x40000000 0x0 0x1000>;
+      clock-frequency = <targetfreq>;
+      current-speed = <targetbaud>;
+      interrupt-parent = <&PLIC0>;
+      interrupts = <2>;
+      reg-shift = <2>; // regs are spaced on 32 bit boundary
+      reg-io-width = <4>; // only 32-bit access are supported
+    };
+    timer@18000000 {
+      compatible = "pulp,apb_timer";
+      interrupts = <0x00000004 0x00000005 0x00000006 0x00000007>;
+      reg = <0x00000000 0x18000000 0x00000000 0x00001000>;
+      interrupt-parent = <&PLIC0>;
+      reg-names = "control";
+    };
+  };
+};

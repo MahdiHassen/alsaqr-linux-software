@@ -1,0 +1,11 @@
+#!/bin/bash
+# Host gcc wrapper. Demotes GCC 15's new-by-default errors so old buildroot
+# host packages (gnulib-era bison, gawk, ...) still compile under GCC 15.
+# Reads the real host gcc from $HOST_GCC_REAL, falling back to /usr/bin/gcc.
+exec "${HOST_GCC_REAL:-/usr/bin/gcc}" \
+  -std=gnu11 \
+  -Wno-error=implicit-function-declaration \
+  -Wno-error=int-conversion \
+  -Wno-error=incompatible-pointer-types \
+  -Wno-error=implicit-int \
+  "$@"

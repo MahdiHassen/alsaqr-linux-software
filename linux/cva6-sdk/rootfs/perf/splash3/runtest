@@ -1,0 +1,33 @@
+cd /perf/splash3/codes/apps/barnes
+echo BARNES
+./BARNES < inputs/n8k-p2
+cd /perf/splash3/codes/apps/fmm
+echo FMM
+./FMM < inputs/input.2.16384
+cd /perf/splash3/codes/apps/ocean/contiguous_partitions
+echo OCEAN CONTIGUOUS
+./OCEAN -p2 -n258
+cd /perf/splash3/codes/apps/radiosity
+echo RADIOSITY
+./RADIOSITY -p 2 -ae 5000 -bf 0.1 -en 0.05 -room -batch
+cd /perf/splash3/codes/apps/water-nsquared
+echo WATER NSQUARED
+./WATER-NSQUARED < inputs/n512-p2
+cd /perf/splash3/codes/apps/water-spatial
+echo WATER SPATIAL
+./WATER-SPATIAL < inputs/n512-p2
+cd /perf/splash3/codes/kernels/cholesky
+echo CHOLESKY
+./CHOLESKY -p2 < inputs/tk14.O
+cd /perf/splash3/codes/kernels/fft
+echo FFT
+./FFT -p2 -m16
+cd /perf/splash3/codes/kernels/lu/contiguous_blocks
+echo LU CONTIGUOUS
+./LU -p2 -n512
+cd /perf/splash3/codes/kernels/lu/non_contiguous_blocks
+echo LU NON CONTIGUOUS
+./LU -p2 -n512
+cd /perf/splash3/codes/kernels/radix
+echo RADIX
+./RADIX -p2 -n1048576

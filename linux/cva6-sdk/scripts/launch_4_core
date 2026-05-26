@@ -1,0 +1,17 @@
+file ./install64/fw_payload.elf
+target remote :3333
+set * ( ( int * ) 0x1a101018 ) = 0x18
+thread 1
+set $pc = 0x80000000
+thread 2
+set $pc = 0x80000000
+thread 3
+set $pc = 0x80000000
+thread 4
+set $pc = 0x80000000
+thread 1
+thread 2
+thread 3
+thread 4
+load
+c
