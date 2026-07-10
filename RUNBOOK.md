@@ -29,9 +29,9 @@ Available bitstreams (swap into `BITSTREAM=`):
 | File | Notes | Serial baud |
 |---|---|---|
 | `bitstreams/alsaqr_opendram2.bit` | **PREFERRED** — OpenDRAM v5, 20 MHz, boots Linux, cleanest console (validated 07/08) | **38400** |
-| `bitstreams/alsaqr_xilinx_48.bit` | known-good baseline, boots Linux | **38400** |
-| `bitstreams/alsaqr_opendram.bit`  | OpenDRAM (old, 04/29) — booted Linux 07/07 | **115200** |
+| `bitstreams/alsaqr_xilinx_48.bit` | known-good baseline (stock DDR), boots Linux | **38400** |
 
+> Both bitstreams run the UART at **38400** (hardwired in the RTL — software can't change it).
 > HW_TARGET is fixed to this board — do NOT change it.
 > After programming, **wait ~30 s** for DDR calibration to finish before connecting.
 
@@ -51,6 +51,7 @@ The ELF lands in the test dir, named after `APP :=` in its Makefile (NOT always 
 ./scripts/build.sh tests/pmu_mempol_synth/ build     # -> tests/pmu_mempol_synth/fat_test.riscv
 ./scripts/build.sh tests/pmu_sdvb/ build             # -> tests/pmu_sdvb/fat_test.riscv
 ./scripts/build.sh tests/march_test/ build           # -> tests/march_test/march_test.riscv
+./scripts/build.sh tests/march_retention/ build      # -> tests/march_retention/march_retention.riscv
 ```
 
 ---
@@ -69,7 +70,10 @@ Runs 5 s, halts, dumps memory at 0x85000000, drops into GDB. Exit GDB with `quit
 ./scripts/load.sh tests/pmu_mempol_synth/fat_test.riscv     # note: fat_test, not pmu_mempol_synth
 ./scripts/load.sh tests/pmu_sdvb/fat_test.riscv             # note: fat_test
 ./scripts/load.sh tests/march_test/march_test.riscv
+./scripts/load.sh tests/march_retention/march_retention.riscv --time 13000000   # DRAM retention (3h; --time = run length)
 ```
+
+Read the result from the `0x85000000` dump load.sh prints (baud-independent). For march_test/march_retention: word0=magic (`0xdeaddead`=done), and the retention flip count is at `0x85000020` (`0`=pass).
 
 ---
 
@@ -90,21 +94,21 @@ pkill -9 openocd 2>/dev/null; sleep 2
 
 ## 5. Serial console
 
-**Match the bitstream's baud** (see table in §1). Two ways:
+**Serial is 38400** (hardwired in both bitstreams). Two ways:
 
 **A) VSCode Serial Monitor in TERMINAL MODE (preferred — fixes the garble).**
 Set Baud to the bitstream's rate, then click the **top-right button (box with `>`)** to switch to terminal mode. It sends each keystroke immediately instead of line-buffering, so the UART buffer doesn't overload. Default (non-terminal) mode is what causes the garble.
 
 **B) `screen`** (char-by-char too; releases cleanly):
 ```bash
-screen /dev/ttyUSB3 38400        # xilinx_48 / opendram2
-screen /dev/ttyUSB3 115200       # opendram (old)
+screen /dev/ttyUSB3 38400
 ```
 Exit screen: `Ctrl-A`, then `k`, then `y`.
 
 - Only ONE program can hold `/dev/ttyUSB3` — quit screen before using the Serial Monitor, and vice-versa.
-- Even in terminal mode: **no arrow keys** (they send 3-byte bursts that overrun). Lower baud (38400) = far less garble than 115200.
+- Even in terminal mode: **no arrow keys** (they send 3-byte bursts that overrun).
 - Quiet kernel spam once at the shell: `dmesg -n 1`
+- **Baremetal test silent on serial?** It's calling `uart_set_cfg`/`set_flls` (the `#ifdef FPGA_EMULATION` block) — that mis-programs the hardwired 38400 UART. Delete that block; just `printf`. (This is why march_test was silent.)
 
 ---
 
@@ -129,7 +133,7 @@ Then retry. Right after programming a fresh bitstream, the first attach can fail
 → **Power-cycle the board** (main power off, ~10 s, on), reprogram, wait ~30 s, retry.
 
 **Nothing / garbage on serial**
-→ Wrong baud. Match the bitstream (§1). `screen` must equal the SoC's hardwired rate; you can't fix it host-side.
+→ Set the monitor to **38400** (both bitstreams are hardwired to it — you can't change it host-side). If a *baremetal test* is silent, see the `uart_set_cfg` note in §5.
 
 ---
 
@@ -139,4 +143,4 @@ Then retry. Right after programming a fresh bitstream, the first attach can fail
 - Serial device: `/dev/ttyUSB3` (Silicon Labs CP210x).
 - DRAM: 512 MB @ `0x80000000`–`0xA0000000`.
 - Booted Linux comes up **single-core** (hart 0; others park in OpenSBI).
-- OpenDRAM verified good (March C- + full Linux boot, 07/07) on `alsaqr_opendram.bit`.
+- OpenDRAM (opendram2) verified good: March C- + full Linux boot + DRAM data-retention test.
