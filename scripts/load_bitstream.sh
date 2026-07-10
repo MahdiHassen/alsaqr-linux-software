@@ -131,5 +131,4 @@ echo "Target:            $HW_TARGET"
 echo "Vivado:            $VIVADO_BIN"
 echo ""
 
-cd "$ALSAQR_ROOT"
-"$VIVADO_BIN" -mode batch -source scripts/load_bistream.tcl -tclargs "$BITSTREAM" "$HW_TARGET"
+"$VIVADO_BIN" -mode batch -source "$ALSAQR_ROOT/scripts/load_bistream.tcl" -tclargs "$BITSTREAM" "$HW_TARGET"

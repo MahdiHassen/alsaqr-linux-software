@@ -13,9 +13,14 @@ open_hw_manager
 connect_hw_server -allow_non_jtag
 
 # Set the hardware target from tclargs
-set current_hw_target [get_hw_targets */$target]
-current_hw_target $current_hw_target
-open_hw_target
+set hw_target_list [get_hw_targets *$target]
+if {[llength $hw_target_list] == 0} {
+    puts "Error: no hw_target found matching: *$target"
+    puts "Available targets:"
+    foreach t [get_hw_targets] { puts "  $t" }
+    exit 1
+}
+open_hw_target [lindex $hw_target_list 0]
 
 # Select the hardware device
 set current_hw_device [get_hw_devices xcvu9p_0]

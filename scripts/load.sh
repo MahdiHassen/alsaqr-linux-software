@@ -30,14 +30,15 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-# Resolve bundle root regardless of where we're invoked from
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve bundle root regardless of where we're invoked from.
+# readlink -f gives the canonical real path, bypassing symlinks and stale $PWD.
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 ALSAQR_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 OPENOCD_BIN="$ALSAQR_ROOT/openocd/bin/openocd"
 OPENOCD_DIR="$ALSAQR_ROOT/openocd"
 GDB_BIN_LOCAL="${GDB_BIN:-$ALSAQR_ROOT/toolchain/rv64/bin/riscv64-unknown-elf-gdb}"
-export OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-$ALSAQR_ROOT/openocd/tcl}"
+export OPENOCD_SCRIPTS="$ALSAQR_ROOT/openocd/tcl"
 
 # Defaults (matching alsaqr-fpga/Makefile)
 GDB_PORT="${GDB_PORT:-6699}"
