@@ -2,3 +2,6 @@ This doc contains info on each bitstream.. if you generate a bitstream make sure
 
 alsaqr_xilinx_48.bit: 38k UART (hardwired), 10Mhz, 1MB DSPM- LINUX BOOTED
 (NEWEST) alsaqr_xilinx_may18.bit: EVUs KINDA fixed
+alsaqr_opendram2.bit: OpenDRAM v5 as DDR4 controller, 38400 UART (hardwired), APMU grant fix (he-soc commit e602d924). LINUX BOOTED (BusyBox shell, clean 38400 console) + March C- full-DRAM test 0 errors.
+   CLK: same build recipe as every bitstream -- SoC/RTL is 20 MHz. The 10 MHz lives in the DEVICE TREE (RTL-bug workaround); that DT value is what xilinx_48's "10Mhz" above refers to. Boot does not actually depend on it.
+   NOTE: REPROGRAM the FPGA right before booting Linux. A baremetal test (march/load.sh) run first leaves dirty lines in the write-back LLC, and JTAG DTB writes bypass the cache, so the DTB at 0x81800000 gets clobbered -> kernel panic "No DTB passed to the kernel" -> dead-silent boot. Fresh flash = clean boot. (See RUNBOOK.md)
