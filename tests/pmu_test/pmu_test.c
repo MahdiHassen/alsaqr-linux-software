@@ -63,16 +63,10 @@ int main(int argc, char const *argv[]) {
   // *******************************************************************
   // Core 0
   // *******************************************************************
-  if (mhartid == 0) {   
-    #ifdef FPGA_EMULATION
-    uint32_t baud_rate = 9600;
-    uint32_t test_freq = 100000000;
-    #else
-    set_flls();
-    uint32_t baud_rate = 115200;
-    uint32_t test_freq = 50000000;
-    #endif
-    uart_set_cfg(0,(test_freq/baud_rate)>>4);
+  if (mhartid == 0) {
+    // UART is hardwired to 38400 in the bitstream — do NOT call uart_set_cfg /
+    // set_flls: that mis-programs the divisor and silences serial. Just printf.
+    // (This block was why pmu_test/march_test showed nothing on serial.)
 
     // Partition the cache.
     // write_32b(0x50 + 0x10401000, 0xFFFFFF00);
