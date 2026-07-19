@@ -1,0 +1,13 @@
+monitor reset halt
+thread 1
+load mohd_4cores_.riscv
+thread 2
+set $pc = 0x0000000080000000
+#load mohd_4cores_2.riscv
+thread 3
+set $pc = 0x0000000080000000
+#load mohd_4cores_3.riscv
+thread 4
+set $pc = 0x0000000080000000
+#load mohd_4cores_4.riscv
+info threads
