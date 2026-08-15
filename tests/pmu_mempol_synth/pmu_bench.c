@@ -514,15 +514,11 @@ int main(int argc, char const *argv[]) {
     // Core 0
     // *******************************************************************
     if (mhartid == 0) {
-        #ifdef FPGA_EMULATION
-        uint32_t baud_rate = 9600;
-        uint32_t test_freq = 100000000;
-        #else
-        set_flls();
+        #ifndef FPGA_EMULATION
         uint32_t baud_rate = 115200;
         uint32_t test_freq = 50000000;
-        #endif
         uart_set_cfg(0, (test_freq / baud_rate) >> 4);
+        #endif
 
         printf("\r\n");
         printf("========================================\r\n");
