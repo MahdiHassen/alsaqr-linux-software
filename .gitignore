@@ -35,3 +35,4 @@ linux/cva6-sdk/buildroot/output/
 linux/cva6-sdk/buildroot/dl/
 linux/cva6-sdk/install64/
 linux/cva6-sdk/opensbi/build/
+linux/built/
