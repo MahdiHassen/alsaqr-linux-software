@@ -78,6 +78,12 @@ $(CC): $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig)
 
 all: $(CC) isa-sim
 
+# Optional rootfs extras. The cachetest/ dir and the Splash-3 submodule are
+# not part of this bundle; only depend on them when their sources are
+# actually present, so a from-source build works without them.
+ROOTFS_EXTRAS := $(if $(wildcard cachetest/cachetest.c),rootfs/cachetest.elf,) \
+                 $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,)
+
 # benchmark for the cache subsystem
 rootfs/cachetest.elf: $(CC)
 	cd ./cachetest/ && $(CC) cachetest.c -o cachetest.elf
@@ -89,7 +95,7 @@ rootfs/perf: $(CC)
 	cp -r Splash-3/codes/splash3 $@/splash3
 	cp -r Splash-3/codes/kernels $@/splash3/codes
 
-$(RISCV)/vmlinux: $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig) $(CC) rootfs/cachetest.elf rootfs/perf
+$(RISCV)/vmlinux: $(buildroot_defconfig) $(linux_defconfig) $(busybox_defconfig) $(CC) $(ROOTFS_EXTRAS)
 	mkdir -p $(RISCV)
 	make -C buildroot $(buildroot-mk)
 	cp buildroot/output/images/vmlinux $@

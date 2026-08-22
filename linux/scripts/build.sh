@@ -25,6 +25,9 @@ fi
 : "${NUM_HARTS:=4}"
 export TARGET_FREQ NUM_HARTS
 
+# Build parallelism. Defaults to all host CPUs; override with JOBS=N.
+: "${JOBS:=$(nproc)}"
+
 # Host gcc wrapper FIRST on PATH so buildroot host packages compile under GCC 15
 export PATH="$LINUX_DIR/host-gcc-wrap/bin:$PATH"
 
@@ -34,11 +37,11 @@ for t in make dtc python3 cpio rsync bison flex; do need "$t"; done
 [ -x /usr/bin/gcc ] || { echo "host /usr/bin/gcc not found" >&2; exit 1; }
 
 cd "$LINUX_DIR/cva6-sdk"
-echo "==> Building Linux + OpenSBI fw_payload (TARGET_FREQ=$TARGET_FREQ NUM_HARTS=$NUM_HARTS)"
+echo "==> Building Linux + OpenSBI fw_payload (TARGET_FREQ=$TARGET_FREQ NUM_HARTS=$NUM_HARTS JOBS=$JOBS)"
 echo "    bundled RISCV (elf): $RISCV"
 echo "    host gcc wrapper:    $LINUX_DIR/host-gcc-wrap/bin/gcc -> /usr/bin/gcc"
 echo "    output dir:          $LINUX_DIR/cva6-sdk/install64/"
 # Target fw_payload.bin instead of images: images also wants uImage, which
 # needs u-boot/tools/mkimage. u-boot is not in this bundle (not used for the
 # JTAG boot path). fw_payload.bin is what gets loaded over GDB at 0x80000000.
-exec make -j"$(nproc)" fw_payload.bin
+exec make -j"$JOBS" NR_CORES="$JOBS" fw_payload.bin
