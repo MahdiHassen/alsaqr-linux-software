@@ -30,6 +30,10 @@ PAYLOAD="${PAYLOAD:-$LINUX_DIR/prebuilt/fw_payload.elf}"
 DTB="${DTB:-$LINUX_DIR/prebuilt/alsaqr.dtb}"
 DTB_ADDR="${DTB_ADDR:-0x81800000}"
 GDB_PORT="${GDB_PORT:-6699}"
+# OpenOCD TCL RPC port. Left open so scripts/send_file.sh can push data into the
+# running Linux while GDB sits in `continue` (see RUNBOOK §8). Set to "disabled"
+# to restore the old behaviour.
+TCL_PORT="${TCL_PORT:-6666}"
 ADAPTER_SPEED="${ADAPTER_SPEED:-2000}"
 INTERFACE="${INTERFACE:-ftdi}"
 DEVICE="${DEVICE:-olimex-arm-usb-ocd-h}"
@@ -52,7 +56,7 @@ OPENOCD_ARGS=(
     -c "set _INTERFACE $INTERFACE"
     -c "set _DEVICE $DEVICE"
     -c "gdb_port $GDB_PORT"
-    -c "tcl_port disabled"
+    -c "tcl_port $TCL_PORT"
     -c "telnet_port disabled"
 )
 [ -n "$ID" ] && OPENOCD_ARGS+=( -c "adapter serial $ID" )

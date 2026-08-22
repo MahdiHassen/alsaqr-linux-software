@@ -82,12 +82,22 @@ all: $(CC) isa-sim
 # not part of this bundle; only depend on them when their sources are
 # actually present, so a from-source build works without them.
 ROOTFS_EXTRAS := $(if $(wildcard cachetest/cachetest.c),rootfs/cachetest.elf,) \
-                 $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,)
+                 $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,) \
+                 $(if $(wildcard ../recv/recv.c),rootfs/usr/bin/recv,)
 
 # benchmark for the cache subsystem
 rootfs/cachetest.elf: $(CC)
 	cd ./cachetest/ && $(CC) cachetest.c -o cachetest.elf
 	cp ./cachetest/cachetest.elf $@
+
+# Receiver for files pushed from the host over JTAG (see ../recv/recv.c and
+# ../../scripts/send_file.sh). Lands in the overlay so it is on $PATH at boot.
+# Built dynamically on purpose: $(CC) is buildroot's own toolchain, so the libc
+# matches the rootfs by construction, and -static would need a static libc that
+# the buildroot config does not necessarily install.
+rootfs/usr/bin/recv: ../recv/recv.c $(CC)
+	mkdir -p $(dir $@)
+	$(CC) -Wall -O2 ../recv/recv.c -o $@
 
 rootfs/perf: $(CC)
 	make -C Splash-3/codes all
@@ -167,7 +177,7 @@ alsaqr.dtb:
 	dtc -I dts opensbi/platform/$(PLATFORM)/fdt_gen/alsaqr.dts -O dtb -o $@
 
 clean:
-	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/cachetest.elf
+	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/cachetest.elf rootfs/usr/bin/recv
 	rm -rf $(RISCV)/fw_payload.bin $(RISCV)/uImage $(RISCV)/Image.gz
 	make -C u-boot clean
 	make -C opensbi distclean
