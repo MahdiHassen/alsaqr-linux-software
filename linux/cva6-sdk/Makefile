@@ -83,7 +83,8 @@ all: $(CC) isa-sim
 # actually present, so a from-source build works without them.
 ROOTFS_EXTRAS := $(if $(wildcard cachetest/cachetest.c),rootfs/cachetest.elf,) \
                  $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,) \
-                 $(if $(wildcard ../recv/recv.c),rootfs/usr/bin/recv,)
+                 $(if $(wildcard ../recv/recv.c),rootfs/usr/bin/recv,) \
+                 $(if $(wildcard ../apmu/apmuctl.c),rootfs/usr/bin/apmuctl,)
 
 # benchmark for the cache subsystem
 rootfs/cachetest.elf: $(CC)
@@ -98,6 +99,14 @@ rootfs/cachetest.elf: $(CC)
 rootfs/usr/bin/recv: ../recv/recv.c $(CC)
 	mkdir -p $(dir $@)
 	$(CC) -Wall -O2 ../recv/recv.c -o $@
+
+# Userspace control of the APMU (PMU) over /dev/mem: load PE firmware into
+# ISPM/DSPM, start/stop the PE, program counters. See ../apmu/README.md.
+# Dynamically linked for the same reason as recv above.
+APMU_SRC := ../apmu/apmuctl.c ../apmu/libapmu.c
+rootfs/usr/bin/apmuctl: $(APMU_SRC) ../apmu/libapmu.h ../apmu/apmu_regs.h $(CC)
+	mkdir -p $(dir $@)
+	$(CC) -Wall -O2 -std=gnu99 -I../apmu $(APMU_SRC) -o $@
 
 rootfs/perf: $(CC)
 	make -C Splash-3/codes all

@@ -1,0 +1,316 @@
+/*
+ * The ELF32 loader, removed from the build on 2026-08-23.
+ *
+ * It was never exercised on hardware, and it drove the PE through a sequence
+ * that differs from the one tests/pmu_test proves works -- in particular it
+ * wrote PMC_BOOT_ADDR, which `apmuctl bubble` deliberately does not. Kept here
+ * verbatim rather than deleted: nothing in this directory is under git, so a
+ * delete would be irreversible. To restore it, add this file back to SRCS in
+ * the Makefile and re-declare the two prototypes in libapmu.h.
+ */
+/* ---- minimal ELF32 reader ---------------------------------------- */
+/*
+ * Self-contained rather than <elf.h>, so this builds identically against any
+ * cross toolchain's headers.
+ */
+
+#define ET_EXEC   2
+#define EM_RISCV  243
+#define SHT_PROGBITS 1
+#define SHT_NOBITS   8
+#define SHF_ALLOC     0x2
+#define SHF_EXECINSTR 0x4
+
+typedef struct {
+    uint8_t  e_ident[16];
+    uint16_t e_type, e_machine;
+    uint32_t e_version, e_entry, e_phoff, e_shoff, e_flags;
+    uint16_t e_ehsize, e_phentsize, e_phnum, e_shentsize, e_shnum, e_shstrndx;
+} elf32_ehdr_t;
+
+typedef struct {
+    uint32_t sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size;
+    uint32_t sh_link, sh_info, sh_addralign, sh_entsize;
+} elf32_shdr_t;
+
+/* Unaligned-safe little-endian loads: the mapped file offsets are not
+ * guaranteed to satisfy uint32_t alignment on every section header. */
+static uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+static uint32_t rd32le(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* Resolve a section name through e_shstrndx, for diagnostics. Returns "?" if
+ * the string table is missing or the offset is out of bounds -- a bad name must
+ * never turn a useful error message into a crash. */
+static int in_ispm(uint64_t a, uint64_t n)
+{
+    /* .text is loaded at ISPM_BASE regardless of where it links, so accept the
+     * whole ISPM window plus the 4 bytes below it: the firmware linker scripts
+     * in this tree deliberately set ORIGIN = ISPM_BASE - 4 (see the -4 note in
+     * README.md and `apmuctl pcprobe`). */
+    return a + 4 >= APMU_ISPM_BASE &&
+           n <= (APMU_ISPM_BASE + APMU_ISPM_SIZE) - (a + 4) + 4;
+}
+
+static int in_dspm(uint64_t a, uint64_t n)
+{
+    return a >= APMU_DSPM_BASE &&
+           a < APMU_DSPM_BASE + APMU_DSPM_SIZE &&
+           n <= (APMU_DSPM_BASE + APMU_DSPM_SIZE) - a;
+}
+
+static const char *sh_name(const uint8_t *b, size_t len, uint32_t shoff,
+                           uint32_t shentsize, uint32_t shnum,
+                           uint32_t shstrndx, uint32_t name_off)
+{
+    const uint8_t *sh;
+    uint32_t stroff, strsize;
+    size_t i;
+
+    if (shstrndx == 0 || shstrndx >= shnum)
+        return "?";
+    sh = b + shoff + (size_t)shstrndx * shentsize;
+    stroff  = rd32le(sh + 16);
+    strsize = rd32le(sh + 20);
+    if (stroff > len || strsize > len - stroff || name_off >= strsize)
+        return "?";
+    /* Must be NUL-terminated inside the table. */
+    for (i = name_off; i < strsize; i++)
+        if (b[stroff + i] == '\0')
+            return (const char *)(b + stroff + name_off);
+    return "?";
+}
+
+int apmu_load_elf_mem(apmu_t *a, const void *elf, size_t len, apmu_image_t *out)
+{
+    const uint8_t *b = elf;
+    uint32_t shoff, shnum, shentsize, shstrndx;
+    uint32_t i;
+    uint8_t *text = NULL, *data = NULL;
+    size_t   text_len = 0, data_len = 0;
+    uint32_t text_lo = 0xffffffffu, text_hi = 0;
+    uint32_t data_lo = 0xffffffffu, data_hi = 0;
+    uint32_t bss_lo  = 0xffffffffu, bss_hi  = 0;
+    int rc = -1;
+    apmu_image_t img;
+
+    memset(&img, 0, sizeof(img));
+
+    if (len < sizeof(elf32_ehdr_t))
+        return fail("ELF: file too short (%zu B)", len);
+    if (memcmp(b, "\177ELF", 4) != 0)
+        return fail("ELF: bad magic");
+    if (b[4] != 1)
+        return fail("ELF: not 32-bit -- the PE is RV32, rebuild the firmware "
+                    "with -march=rv32im -mabi=ilp32");
+    if (b[5] != 1)
+        return fail("ELF: not little-endian");
+    if (rd16(b + 18) != EM_RISCV)
+        return fail("ELF: e_machine %u is not RISC-V", rd16(b + 18));
+
+    shoff     = rd32le(b + 32);
+    shentsize = rd16(b + 46);
+    shnum     = rd16(b + 48);
+    shstrndx  = rd16(b + 50);
+
+    if (shnum == 0 || shentsize < sizeof(elf32_shdr_t))
+        return fail("ELF: no usable section headers (stripped?)");
+    if (shoff > len || (uint64_t)shnum * shentsize > len - shoff)
+        return fail("ELF: section header table out of bounds");
+
+    /* Pass 1: measure. Text is contiguous by construction (one .text section);
+     * data may span several sections, so span from lowest to highest address
+     * and zero-fill the gaps -- exactly what `objcopy -O binary` does. */
+    for (i = 0; i < shnum; i++) {
+        const uint8_t *sh = b + shoff + (size_t)i * shentsize;
+        uint32_t type  = rd32le(sh + 4);
+        uint32_t flags = rd32le(sh + 8);
+        uint32_t addr  = rd32le(sh + 12);
+        uint32_t size  = rd32le(sh + 20);
+
+        if (!(flags & SHF_ALLOC) || size == 0)
+            continue;
+
+        /* An allocatable section outside both scratchpads means the linker
+         * script has no rule for it -- typically an orphan like .eh_frame that
+         * LLD parked at address 0. Silently folding it into the data image
+         * would corrupt the load, so name it and stop. */
+        if (!in_ispm(addr, size) && !in_dspm(addr, size))
+            return fail("ELF: section '%s' is allocatable at [0x%x, 0x%x) but "
+                        "lies in neither ISPM [0x%lx, 0x%lx) nor DSPM "
+                        "[0x%lx, 0x%lx) -- add a rule (or /DISCARD/) for it in "
+                        "the firmware linker script",
+                        sh_name(b, len, shoff, shentsize, shnum, shstrndx,
+                                rd32le(sh)),
+                        addr, addr + size,
+                        (unsigned long)APMU_ISPM_BASE,
+                        (unsigned long)(APMU_ISPM_BASE + APMU_ISPM_SIZE),
+                        (unsigned long)APMU_DSPM_BASE,
+                        (unsigned long)(APMU_DSPM_BASE + APMU_DSPM_SIZE));
+
+        if (type == SHT_NOBITS) {
+            if (addr < bss_lo) bss_lo = addr;
+            if (addr + size > bss_hi) bss_hi = addr + size;
+            continue;
+        }
+        if (type != SHT_PROGBITS)
+            continue;
+
+        if (flags & SHF_EXECINSTR) {
+            if (addr < text_lo) text_lo = addr;
+            if (addr + size > text_hi) text_hi = addr + size;
+        } else {
+            if (addr < data_lo) data_lo = addr;
+            if (addr + size > data_hi) data_hi = addr + size;
+        }
+    }
+
+    if (text_hi <= text_lo)
+        return fail("ELF: no allocatable executable section found");
+    text_len = text_hi - text_lo;
+
+    /*
+     * .text is loaded at ISPM_BASE no matter where it links, so a mismatch is
+     * survivable -- intra-.text control flow is PC-relative and moves with the
+     * section. It is NOT survivable for any absolute code address: a function
+     * pointer, a jump table, or `la t0, _trap_handler; csrw mtvec, t0` in crt0
+     * all bake in the link address and will be off by exactly this delta.
+     * Warn rather than refuse, because every firmware linker script in this
+     * tree currently links 4 low on purpose.
+     */
+    if (text_lo != APMU_ISPM_BASE) {
+        fprintf(stderr,
+            "libapmu: warning: .text links at 0x%08x but is loaded at 0x%08lx "
+            "(delta %+d).\n"
+            "  PC-relative code is fine; every ABSOLUTE code address in this "
+            "image is wrong by that\n"
+            "  amount -- function pointers, jump tables, mtvec. Run "
+            "`apmuctl pcprobe` to find the\n"
+            "  address the PE really fetches from, then set the linker ORIGIN "
+            "to match.\n",
+            text_lo, (unsigned long)APMU_ISPM_BASE,
+            (int)(int32_t)(APMU_ISPM_BASE - text_lo));
+    }
+    if (text_len > APMU_ISPM_SIZE)
+        return fail("ELF: .text is %zu B, ISPM is only %lu B",
+                    text_len, (unsigned long)APMU_ISPM_SIZE);
+
+    if (data_hi > data_lo) {
+        data_len = data_hi - data_lo;
+        if (data_lo < APMU_DSPM_BASE ||
+            (uint64_t)data_lo + data_len > APMU_DSPM_BASE + APMU_DSPM_SIZE)
+            return fail("ELF: data sections link to [0x%x, 0x%x), outside DSPM "
+                        "[0x%lx, 0x%lx) -- check the firmware linker script",
+                        data_lo, data_hi,
+                        (unsigned long)APMU_DSPM_BASE,
+                        (unsigned long)(APMU_DSPM_BASE + APMU_DSPM_SIZE));
+    }
+
+    text = calloc(1, text_len);
+    if (!text)
+        return fail("ELF: out of memory");
+    if (data_len) {
+        data = calloc(1, data_len);
+        if (!data) {
+            free(text);
+            return fail("ELF: out of memory");
+        }
+    }
+
+    /* Pass 2: gather. */
+    for (i = 0; i < shnum; i++) {
+        const uint8_t *sh = b + shoff + (size_t)i * shentsize;
+        uint32_t type   = rd32le(sh + 4);
+        uint32_t flags  = rd32le(sh + 8);
+        uint32_t addr   = rd32le(sh + 12);
+        uint32_t offset = rd32le(sh + 16);
+        uint32_t size   = rd32le(sh + 20);
+
+        if (!(flags & SHF_ALLOC) || size == 0 || type != SHT_PROGBITS)
+            continue;
+        if (offset > len || (uint64_t)offset + size > len) {
+            fail("ELF: section %u body out of bounds", i);
+            goto done;
+        }
+
+        if (flags & SHF_EXECINSTR) {
+            memcpy(text + (addr - text_lo), b + offset, size);
+        } else {
+            memcpy(data + (addr - data_lo), b + offset, size);
+        }
+    }
+
+    if (apmu_load_raw(a, text, text_len,
+                      data_len ? data : NULL, data_len,
+                      data_len ? data_lo : 0,
+                      &img) < 0)
+        goto done;
+
+    /*
+     * Zero .bss explicitly. objcopy's data blob does not carry it (NOBITS has
+     * no file content), and DSPM is not reset when the PE restarts -- so a
+     * second run would otherwise inherit the first run's globals.
+     */
+    if (bss_hi > bss_lo) {
+        uint64_t lo = bss_lo & ~(uint64_t)3;
+        uint64_t hi = ((uint64_t)bss_hi + 3) & ~(uint64_t)3;
+        if (lo < APMU_DSPM_BASE || hi > APMU_DSPM_BASE + APMU_DSPM_SIZE) {
+            fail("ELF: .bss [0x%x, 0x%x) is outside DSPM", bss_lo, bss_hi);
+            goto done;
+        }
+        if (apmu_zero_mem(a, lo, (size_t)(hi - lo)) < 0)
+            goto done;
+        img.bss_addr = bss_lo;
+        img.bss_size = bss_hi - bss_lo;
+    }
+
+    if (out)
+        *out = img;
+    apmu_err[0] = '\0';
+    rc = 0;
+
+done:
+    free(text);
+    free(data);
+    return rc;
+}
+
+int apmu_load_elf_file(apmu_t *a, const char *path, apmu_image_t *out)
+{
+    struct stat st;
+    uint8_t *buf;
+    ssize_t n;
+    size_t got = 0;
+    int fd, rc;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return fail("open(%s): %s", path, strerror(errno));
+    if (fstat(fd, &st) < 0 || st.st_size <= 0) {
+        close(fd);
+        return fail("stat(%s): %s", path, strerror(errno));
+    }
+
+    buf = malloc((size_t)st.st_size);
+    if (!buf) {
+        close(fd);
+        return fail("out of memory reading %s", path);
+    }
+    while (got < (size_t)st.st_size) {
+        n = read(fd, buf + got, (size_t)st.st_size - got);
+        if (n <= 0) {
+            free(buf);
+            close(fd);
+            return fail("read(%s): %s", path, n < 0 ? strerror(errno) : "short read");
+        }
+        got += (size_t)n;
+    }
+    close(fd);
+
+    rc = apmu_load_elf_mem(a, buf, got, out);
+    free(buf);
+    return rc;
+}
