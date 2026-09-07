@@ -87,6 +87,14 @@ if [[ ! -x "$GDB_BIN_LOCAL" ]]; then
     exit 1
 fi
 
+if (exec 3<>/dev/tcp/127.0.0.1/"$GDB_PORT") 2>/dev/null; then
+    exec 3>&-
+    echo "[!] Port $GDB_PORT is already in use — an OpenOCD from a previous run is" >&2
+    echo "    probably still holding the JTAG adapter. Run 'pkill -9 openocd'" >&2
+    echo "    (or pass --gdb-port) and try again." >&2
+    exit 1
+fi
+
 IMG_ABS="$(readlink -f "$IMG")"
 TMPDIR="$(mktemp -d -t alsaqr-load-XXXXXX)"
 GDB_CMDS="$TMPDIR/load_cmds.gdb"
@@ -116,10 +124,19 @@ echo "[*] Starting OpenOCD on :$GDB_PORT…"
 "$OPENOCD_BIN" "${OPENOCD_ARGS[@]}" >"$OCD_LOG" 2>&1 &
 OCD_PID=$!
 
+CLEANED=0
 cleanup() {
+    if [[ $CLEANED -eq 1 ]]; then return 0; fi
+    CLEANED=1
     echo
     echo "[*] Shutting down OpenOCD (pid $OCD_PID)…"
     kill "$OCD_PID" >/dev/null 2>&1 || true
+    # Give OpenOCD a moment to release the FTDI adapter, then insist.
+    for _ in $(seq 1 30); do
+        kill -0 "$OCD_PID" 2>/dev/null || break
+        sleep 0.1
+    done
+    kill -9 "$OCD_PID" >/dev/null 2>&1 || true
     wait "$OCD_PID" 2>/dev/null || true
     rm -rf "$TMPDIR"
 }
@@ -129,6 +146,11 @@ echo "[*] Waiting for OpenOCD GDB server on :$GDB_PORT …"
 for _ in $(seq 1 120); do
     if (exec 3<>/dev/tcp/127.0.0.1/"$GDB_PORT") 2>/dev/null; then exec 3>&-; break; fi
     if grep -q "Ready for Remote Connections" "$OCD_LOG" 2>/dev/null; then break; fi
+    if ! kill -0 "$OCD_PID" 2>/dev/null; then
+        echo "[!] OpenOCD exited during startup. Log:" >&2
+        cat "$OCD_LOG" >&2
+        exit 1
+    fi
     sleep 0.5
 done
 if ! (exec 3<>/dev/tcp/127.0.0.1/"$GDB_PORT") 2>/dev/null; then
@@ -209,4 +231,8 @@ COUNTERS
 fi
 
 echo "[*] Launching GDB (run time: ${RUN_TIME_MS} ms)…"
-exec "$GDB_BIN_LOCAL" -q -x "$GDB_CMDS"
+set +e
+"$GDB_BIN_LOCAL" -q -x "$GDB_CMDS"
+GDB_RC=$?
+set -e
+exit "$GDB_RC"

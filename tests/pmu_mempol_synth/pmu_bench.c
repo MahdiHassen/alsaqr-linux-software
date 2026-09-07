@@ -47,7 +47,7 @@
 #define WORK_ARRAY_SIZE   256  // uint32_t elements per work iteration
 #define NUM_ITERATIONS    100  // iterations of core_work for timing measurement
 
-// Enables the LLC for 0x8000_0000 - 0xA000_0000
+// Enables the LLC for 0x8000_0000 - 0x8300_0000
 void enable_llc(void) {
     write_32b(0x1C + 0x1A106000, 0x83000000);
 }
@@ -170,7 +170,8 @@ static uint32_t* const core_data_base[NUM_CORES] = {
 #define LLC_READ_LINES    256    // 16KB — fits in per-core LLC partition (warm hits)
 #define DRAM_READ_LINES   4096   // 256KB — exceeds LLC, forces DRAM
 #define STAGE_ITERATIONS  10
-#define TOTAL_STAGE_ITERS (STAGE_ITERATIONS * 3)
+#define NUMBER_OF_STAGES  6
+#define TOTAL_STAGE_ITERS (STAGE_ITERATIONS * NUMBER_OF_STAGES)
 
 uint64_t read_pmu_timer(void) {
     uint64_t timer_val;
@@ -256,6 +257,8 @@ void core3_work(void) {
 typedef void (*work_func_t)(void);
 work_func_t core_work[NUM_CORES] = {core0_work, core1_work, core2_work, core3_work};
 
+// Read/Write Group
+
 // Stage 1 & 3: small LLC-resident region — all hits, no DRAM traffic
 void llc_stage_work(void) {
     volatile uint64_t *data = (volatile uint64_t *)CORE0_DATA_BASE;
@@ -267,10 +270,28 @@ void llc_stage_work(void) {
 
 // Stage 2: large region exceeding LLC partition — forces DRAM hits
 void dram_stage_work(void) {
-    volatile uint64_t *data = (volatile uint64_t *)
-    MEM_BASE;  // Use separate base to ensure we exceed LLC and hit DRAM
-    for (uint32_t i = 0; i < LLC_READ_LINES*3; i++)
+    volatile uint64_t *data = (volatile uint64_t *)CORE0_DATA_BASE;  // Use separate base to ensure we exceed LLC and hit DRAM
+    for (uint32_t i = 0; i < DRAM_READ_LINES*2; i++)
         data[i * (CACHE_LINE_SIZE / sizeof(uint64_t))] = i;
+}
+
+// Read Group
+void llc_stage_work_read(void) {
+    volatile uint64_t *data = (volatile uint64_t *)CORE0_DATA_BASE;
+    volatile uint64_t dummy = 0;
+    for (uint32_t i = 0; i < LLC_READ_LINES*3; i++) {
+        dummy = data[i * (CACHE_LINE_SIZE / sizeof(uint64_t))];
+    }
+    
+}
+
+void dram_stage_work_read(void) {
+    volatile uint64_t *data = (volatile uint64_t *)CORE0_DATA_BASE;
+    volatile uint64_t dummy;
+    for (uint32_t i = 0; i < DRAM_READ_LINES*2; i++) {
+        dummy = data[i * (CACHE_LINE_SIZE / sizeof(uint64_t))];
+    }
+    
 }
 
 // *********************************************************************
@@ -737,6 +758,7 @@ int main(int argc, char const *argv[]) {
 
         uint32_t global_iter = 0;
         uint64_t t_s1, t_s1_end, t_s2, t_s2_end, t_s3, t_s3_end;
+        uint64_t t_s4, t_s4_end, t_s5, t_s5_end, t_s6, t_s6_end;
 
         // Stage 1: LLC — warm hits, mempol idle
         t_s1 = read_pmu_timer();
@@ -789,6 +811,59 @@ int main(int argc, char const *argv[]) {
         }
         t_s3_end = read_pmu_timer();
 
+        //Read Section 
+        prime_cache(0);
+        
+        t_s4 = read_pmu_timer();
+        for (uint32_t i = 0; i < STAGE_ITERATIONS; i++, global_iter++) {
+            reset_counters(0);
+            uint64_t t0 = read_pmu_timer();
+            llc_stage_work_read();
+            uint64_t t1 = read_pmu_timer();
+            buf_llcrd[global_iter] = read_32b(COUNTER_BASE_ADDR + 4  * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_llcwr[global_iter] = read_32b(COUNTER_BASE_ADDR + 8  * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_memrd[global_iter] = read_32b(COUNTER_BASE_ADDR + 12 * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_memwr[global_iter] = read_32b(COUNTER_BASE_ADDR + 16 * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_irqs[global_iter]  = g_interrupt_count[0];
+            buf_cyc[global_iter]   = (uint32_t)(t1 - t0);
+            buf_stage[global_iter] = 3;
+            
+        }
+        t_s4_end = read_pmu_timer();
+
+        t_s5 = read_pmu_timer();
+        for (uint32_t i = 0; i < STAGE_ITERATIONS; i++, global_iter++) {
+            reset_counters(0);
+            uint64_t t0 = read_pmu_timer();
+            dram_stage_work_read();
+            uint64_t t1 = read_pmu_timer();
+            buf_llcrd[global_iter] = read_32b(COUNTER_BASE_ADDR + 4  * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_llcwr[global_iter] = read_32b(COUNTER_BASE_ADDR + 8  * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_memrd[global_iter] = read_32b(COUNTER_BASE_ADDR + 12 * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_memwr[global_iter] = read_32b(COUNTER_BASE_ADDR + 16 * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_irqs[global_iter]  = g_interrupt_count[0];
+            buf_cyc[global_iter]   = (uint32_t)(t1 - t0);
+            buf_stage[global_iter] = 4;
+            
+        }
+        t_s5_end = read_pmu_timer();
+
+        t_s6 = read_pmu_timer();
+        for (uint32_t i = 0; i < STAGE_ITERATIONS; i++, global_iter++) {
+            reset_counters(0);
+            uint64_t t0 = read_pmu_timer();
+            llc_stage_work_read();
+            uint64_t t1 = read_pmu_timer();
+            buf_llcrd[global_iter] = read_32b(COUNTER_BASE_ADDR + 4  * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_llcwr[global_iter] = read_32b(COUNTER_BASE_ADDR + 8  * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_memrd[global_iter] = read_32b(COUNTER_BASE_ADDR + 12 * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_memwr[global_iter] = read_32b(COUNTER_BASE_ADDR + 16 * COUNTER_BUNDLE_SIZE) & 0x7FFFFFFF;
+            buf_irqs[global_iter]  = g_interrupt_count[0];
+            buf_cyc[global_iter]   = (uint32_t)(t1 - t0);
+            buf_stage[global_iter] = 5;
+            
+        }
+        t_s6_end = read_pmu_timer();
 
         // Core 0 is done - signal completion
         g_core_done[0] = 1;
@@ -851,12 +926,21 @@ int main(int argc, char const *argv[]) {
         printf("    PMU status: 0x%08x\r\n", read_32b(DSPM_STATUS_ADDR));
 
         printf("\r\n--- Stage timing summary ---\r\n");
-        printf("  Stage 1 (LLC):  %u cycles total, %u avg/iter\r\n",
-               (uint32_t)(t_s1_end - t_s1), (uint32_t)(t_s1_end - t_s1) / STAGE_ITERATIONS);
-        printf("  Stage 2 (DRAM): %u cycles total, %u avg/iter  [mempol active]\r\n",
-               (uint32_t)(t_s2_end - t_s2), (uint32_t)(t_s2_end - t_s2) / STAGE_ITERATIONS);
-        printf("  Stage 3 (LLC):  %u cycles total, %u avg/iter\r\n",
-               (uint32_t)(t_s3_end - t_s3), (uint32_t)(t_s3_end - t_s3) / STAGE_ITERATIONS);
+        printf("\r\nCUA Read/Write \r\n");
+        printf("  Stage 1 (LLC):  %u cycles total, %u avg cc/iter, Latency: %u cc/instr \r\n",
+               (uint32_t)(t_s1_end - t_s1), (uint32_t)(t_s1_end - t_s1) / STAGE_ITERATIONS, ((uint32_t)(t_s1_end - t_s1) / (STAGE_ITERATIONS*LLC_READ_LINES*3)));
+        printf("  Stage 2 (DRAM): %u cycles total, %u avg cc/iter, Latency: %u cc/instr \r\n",
+               (uint32_t)(t_s2_end - t_s2), (uint32_t)(t_s2_end - t_s2) / STAGE_ITERATIONS, ((uint32_t)(t_s2_end - t_s2) / (STAGE_ITERATIONS*DRAM_READ_LINES*2)));
+        printf("  Stage 3 (LLC):  %u cycles total, %u avg cc/iter, Latency: %u cc/instr \r\n",
+               (uint32_t)(t_s3_end - t_s3), (uint32_t)(t_s3_end - t_s3) / STAGE_ITERATIONS, ((uint32_t)(t_s3_end - t_s3) / (STAGE_ITERATIONS*LLC_READ_LINES*3)));
+
+        printf("\r\nCUA Read:\r\n");
+        printf("  Stage 4 (LLC):  %u cycles total, %u avg cc/iter, Latency: %u cc/instr \r\n",
+               (uint32_t)(t_s4_end - t_s4), (uint32_t)(t_s4_end - t_s4) / STAGE_ITERATIONS, ((uint32_t)(t_s4_end - t_s4) / (STAGE_ITERATIONS*LLC_READ_LINES*3)));
+        printf("  Stage 5 (DRAM): %u cycles total, %u avg cc/iter, Latency: %u cc/instr \r\n",
+               (uint32_t)(t_s5_end - t_s5), (uint32_t)(t_s5_end - t_s5) / STAGE_ITERATIONS, ((uint32_t)(t_s5_end - t_s5) / (STAGE_ITERATIONS*DRAM_READ_LINES*2)));
+        printf("  Stage 6 (LLC):  %u cycles total, %u avg cc/iter, Latency: %u cc/instr \r\n",
+               (uint32_t)(t_s6_end - t_s6), (uint32_t)(t_s6_end - t_s6) / STAGE_ITERATIONS, ((uint32_t)(t_s6_end - t_s6) / (STAGE_ITERATIONS*LLC_READ_LINES*3)));       
 
         // Wait for PMU to complete calibration iteration
         for (volatile uint32_t i = 0; i < 1000; i++) asm volatile ("nop");
@@ -928,7 +1012,7 @@ int main(int argc, char const *argv[]) {
         } // end if (0)
 
         // Dump buffered CVA6 per-stage iterations
-        static const char * const stage_names[] = {"LLC", "DRAM", "LLC2"};
+        static const char * const stage_names[] = {"LLC_RW", "DRAM_RW", "LLC2_RW", "LLC_R", "DRAM_R", "LLC2_R"};
         printf("\r\niter,stage,LLC_RD,LLC_WR,MEM_RD,MEM_WR,IRQs,cycles\r\n");
         for (uint32_t r = 0; r < TOTAL_STAGE_ITERS; r++) {
             printf("%u,%s,%u,%u,%u,%u,%u,%u\r\n",
