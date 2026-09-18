@@ -27,6 +27,8 @@
 #   --raw               Force treating the input as raw binary
 #   --time MS           ms to run before halt/dump (default 5000)
 #   --counters          Dump PMU counter MMIO regions (counters 0–11)
+#   --batch             Quit GDB after the run instead of dropping into it (demos, scripts)
+#   --serial-log FILE   Record the serial console (SERIAL_DEV, default /dev/ttyUSB3 @ 38400) during the run
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
@@ -54,6 +56,10 @@ MEM_BASE_ADDR="${MEM_BASE_ADDR:-0x80000000}"
 RUN_TIME_MS="${RUN_TIME_MS:-5000}"
 FORCE_RAW=0
 SHOW_COUNTERS=0
+BATCH=0
+SERIAL_LOG=""
+SERIAL_DEV="${SERIAL_DEV:-/dev/ttyUSB3}"
+SERIAL_BAUD="${SERIAL_BAUD:-38400}"
 
 IMG="${1:-}"
 shift || true
@@ -65,6 +71,8 @@ while [[ $# -gt 0 ]]; do
         --time)     RUN_TIME_MS="$2"; shift 2;;
         --raw)      FORCE_RAW=1; shift;;
         --counters) SHOW_COUNTERS=1; shift;;
+        --batch)    BATCH=1; shift;;
+        --serial-log) SERIAL_LOG="$2"; shift 2;;
         -h|--help)  sed -n '1,40p' "$0"; exit 0;;
         *) echo "Unknown arg: $1" >&2; exit 1;;
     esac
@@ -116,14 +124,38 @@ echo "[*] Starting OpenOCD on :$GDB_PORT…"
 "$OPENOCD_BIN" "${OPENOCD_ARGS[@]}" >"$OCD_LOG" 2>&1 &
 OCD_PID=$!
 
+SERIAL_PID=""
 cleanup() {
     echo
     echo "[*] Shutting down OpenOCD (pid $OCD_PID)…"
     kill "$OCD_PID" >/dev/null 2>&1 || true
     wait "$OCD_PID" 2>/dev/null || true
+    if [[ -n "$SERIAL_PID" ]]; then
+        sleep 1; kill "$SERIAL_PID" >/dev/null 2>&1 || true
+        wait "$SERIAL_PID" 2>/dev/null || true
+        echo "[*] Serial console saved to $SERIAL_LOG ($(wc -l < "$SERIAL_LOG") lines)"
+    fi
     rm -rf "$TMPDIR"
 }
 trap cleanup EXIT INT TERM
+
+if [[ -n "$SERIAL_LOG" ]]; then
+    : > "$SERIAL_LOG"
+    python3 - "$SERIAL_DEV" "$SERIAL_BAUD" "$SERIAL_LOG" <<'PY' &
+import sys, time, serial   # pyserial
+dev, baud, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+s = serial.Serial(dev, baud, timeout=1)
+buf = b""
+with open(out, "ab", buffering=0) as f:
+    while True:
+        buf += s.read(4096)
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            f.write(time.strftime("%H:%M:%S ").encode() + line.replace(b"\r", b"") + b"\n")
+PY
+    SERIAL_PID=$!
+    echo "[*] Recording $SERIAL_DEV @ $SERIAL_BAUD to $SERIAL_LOG (pid $SERIAL_PID)"
+fi
 
 echo "[*] Waiting for OpenOCD GDB server on :$GDB_PORT …"
 for _ in $(seq 1 120); do
@@ -208,5 +240,11 @@ x/4wx 0x10412000
 COUNTERS
 fi
 
+if [[ $BATCH -eq 1 ]]; then
+    echo "quit" >> "$GDB_CMDS"
+fi
+
 echo "[*] Launching GDB (run time: ${RUN_TIME_MS} ms)…"
-exec "$GDB_BIN_LOCAL" -q -x "$GDB_CMDS"
+# Not exec'ed: the EXIT trap above must run afterwards to stop OpenOCD (an exec'ed GDB left one
+# OpenOCD behind per run, and the next run failed with LIBUSB_ERROR_BUSY on the JTAG adapter).
+"$GDB_BIN_LOCAL" -q -x "$GDB_CMDS"

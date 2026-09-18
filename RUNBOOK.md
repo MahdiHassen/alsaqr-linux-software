@@ -30,6 +30,7 @@ Available bitstreams (swap into `BITSTREAM=`):
 |---|---|---|
 | `bitstreams/alsaqr_opendram2.bit` | **PREFERRED** — OpenDRAM v5, 20 MHz, boots Linux, cleanest console (validated 07/08) | **38400** |
 | `bitstreams/alsaqr_xilinx_48.bit` | known-good baseline (stock DDR), boots Linux | **38400** |
+| `bitstreams/alsaqr_xilinx_50MHz.bit` | **50 MHz SoC** (he-soc 8a42dbac, stock DDR4), current RTL — use for APMU/EVU tests (apmu-software evu_test, mempol, sad_profile verified 2026-09-18) | **38400** |
 
 > Both bitstreams run the UART at **38400** (hardwired in the RTL — software can't change it).
 > HW_TARGET is fixed to this board — do NOT change it.
@@ -72,6 +73,17 @@ Runs 5 s, halts, dumps memory at 0x85000000, drops into GDB. Exit GDB with `quit
 ./scripts/load.sh tests/march_test/march_test.riscv
 ./scripts/load.sh tests/march_retention/march_retention.riscv --time 13000000   # DRAM retention (3h; --time = run length)
 ```
+
+Non-interactive (for demos and scripts): `--batch` quits GDB after the run instead of dropping into it, and
+`--serial-log FILE` records `/dev/ttyUSB3` at 38400 for the duration of the run:
+
+```bash
+./scripts/load.sh ../apmu-software/evu_test/evu_test.riscv --time 3000 --batch --serial-log evu.log
+```
+
+load.sh stops the OpenOCD it started when it exits (it used to leak one per run, which made the next run fail
+with `LIBUSB_ERROR_BUSY`). The first JTAG attach right after programming a bitstream can still fail once
+(`IR capture error` / `dtmcontrol is 0`): just run it again.
 
 Read the result from the `0x85000000` dump load.sh prints (baud-independent). For march_test/march_retention: word0=magic (`0xdeaddead`=done), and the retention flip count is at `0x85000020` (`0`=pass).
 

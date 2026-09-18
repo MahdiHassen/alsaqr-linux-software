@@ -540,15 +540,13 @@ int main(int argc, char const *argv[]) {
     // Core 0
     // *******************************************************************
     if (mhartid == 0) {
-        #ifdef FPGA_EMULATION
-        uint32_t baud_rate = 9600;
-        uint32_t test_freq = 100000000;
-        #else
+        #ifndef FPGA_EMULATION
+        // RTL simulation (mock UART, any divisor works)
         set_flls();
-        uint32_t baud_rate = 115200;
-        uint32_t test_freq = 50000000;
+        uart_set_cfg(0, (50000000 / 115200) >> 4);
         #endif
-        uart_set_cfg(0, (test_freq / baud_rate) >> 4);
+        // On the FPGA the UART is hardwired to 38400: do not call uart_set_cfg / set_flls, that
+        // mis-programs the divisor and silences the console (same fix as pmu_test).
         #ifdef XSIM
         xsim_wake_cores_2_3();
         #endif
