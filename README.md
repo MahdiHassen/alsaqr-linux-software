@@ -46,6 +46,7 @@ alsaqr-software/
     ├── inc/                        # shared headers
     ├── common/                     # crt.S, syscalls.c, test.ld, etc.
     ├── pmu_mempol_synth/           # memory policing test (LLC/MEM stages)
+    ├── pmu_mempol_synth_sim/       # same test, shortened, for the xsim RTL simulation
     └── pmu_sdvb/                   # SDVB benchmarks under PMU regulation
                                     # (embedded FAT image at 0x82100000)
 ```
@@ -89,6 +90,24 @@ Run:
 ```bash
 ./scripts/load.sh tests/pmu_mempol_synth/pmu_bench.riscv --time 30000
 ```
+
+### `pmu_mempol_synth_sim`
+The same benchmark configured for the he-soc xsim RTL simulation (driven by the
+alsaqr-mcp tools). It compiles the `pmu_mempol_synth` sources with `-DXSIM` and
+smaller workload knobs (see the Makefile): the simulator resumes only core 0, so
+the `XSIM` build wakes cores 2 and 3 itself, and the wall-clock delays / table
+sizes of the FPGA version would take hours of simulated time. Nothing in the
+FPGA build changes.
+
+Build:
+```bash
+FPGA=0 ./scripts/build.sh tests/pmu_mempol_synth_sim pmu_bench
+# or: alsaqr-mcp sw_build test=tests/pmu_mempol_synth_sim target=pmu_bench
+```
+
+Run: `alsaqr-mcp sim_run binary=tests/pmu_mempol_synth_sim/pmu_bench.riscv`,
+then `sim_uart` for the console. Cores print concurrently without a lock, so
+lines printed by several cores at once come out interleaved.
 
 ### `pmu_sdvb`
 SDVB benchmark suite (disparity, mser, sift, stitch) running on core 0 under

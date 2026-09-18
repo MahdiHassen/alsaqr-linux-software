@@ -102,7 +102,9 @@ volatile uint64_t g_mepc = 0xDEAD0005;
 volatile uint32_t g_claimed_irq = 0xDEAD0006;
 
 // Interrupt timing distribution: record mcycle and type (pause/resume) for each IRQ
-#define MAX_IRQ_LOG 5000
+#ifndef MAX_IRQ_LOG
+#define MAX_IRQ_LOG 5000     // entries per core; pmu_mempol_synth_sim builds with a smaller table
+#endif
 volatile uint32_t g_irq_log_cycle[NUM_CORES][MAX_IRQ_LOG];  // mcycle timestamp
 volatile uint8_t  g_irq_log_type[NUM_CORES][MAX_IRQ_LOG];   // 0=pause, 1=resume
 volatile uint32_t g_core0_start_mcycle = 0;  // mcycle when core 0 starts work
@@ -166,10 +168,14 @@ static uint32_t* const core_data_base[NUM_CORES] = {
 };
 
 // 256KB / 64B cache line = 4096 cache lines per work iteration
-#define WORK_READ_LINES   4096
+#ifndef WORK_READ_LINES
+#define WORK_READ_LINES   4096   // cache lines primed per core; overridable (pmu_mempol_synth_sim)
+#endif
 #define LLC_READ_LINES    256    // 16KB — fits in per-core LLC partition (warm hits)
 #define DRAM_READ_LINES   4096   // 256KB — exceeds LLC, forces DRAM
-#define STAGE_ITERATIONS  10
+#ifndef STAGE_ITERATIONS
+#define STAGE_ITERATIONS  10     // overridable (pmu_mempol_synth_sim)
+#endif
 #define TOTAL_STAGE_ITERS (STAGE_ITERATIONS * 3)
 
 uint64_t read_pmu_timer(void) {
@@ -499,6 +505,26 @@ void thread_entry(int cid, int nc) {
     return;
 }
 
+#ifdef XSIM
+// Simulation only (he-soc xsim flow): the testbench resumes core 0 over JTAG and the boot ROM parks
+// cores 2 and 3 in wfi until a PLIC interrupt reaches their contexts (5 and 7). Mirror
+// he-soc/software/quad_boot: enable sources 156/157 for those contexts and overflow counters 0/1 so both
+// cores wake, claim the interrupt in the boot ROM and jump to _start. The cores clear the remaining
+// enable bit themselves when they reach main() (below), so sources 156/157 stay private to cores 0/1.
+static void xsim_wake_cores_2_3(void) {
+    write_32b(0x0C000000 + 156 * 4, 1);            // priority of sources 156/157
+    write_32b(0x0C000000 + 157 * 4, 1);
+    write_32b(0x0C002290, 1u << (156 % 32));       // enable 156 for context 5 (hart 2)
+    write_32b(0x0C002390, 1u << (157 % 32));       // enable 157 for context 7 (hart 3)
+    asm volatile ("fence iorw, iorw" ::: "memory");
+    write_32b(EVENT_INFO_BASE_ADDR, OVERFLOW_EN);
+    write_32b(COUNTER_BASE_ADDR, 0x40000000);
+    write_32b(EVENT_INFO_BASE_ADDR + COUNTER_BUNDLE_SIZE, OVERFLOW_EN);
+    write_32b(COUNTER_BASE_ADDR + COUNTER_BUNDLE_SIZE, 0x40000000);
+    asm volatile ("fence iorw, iorw" ::: "memory");
+}
+#endif
+
 // *********************************************************************
 // Main Function
 // *********************************************************************
@@ -523,6 +549,9 @@ int main(int argc, char const *argv[]) {
         uint32_t test_freq = 50000000;
         #endif
         uart_set_cfg(0, (test_freq / baud_rate) >> 4);
+        #ifdef XSIM
+        xsim_wake_cores_2_3();
+        #endif
 
         printf("\r\n");
         printf("========================================\r\n");
@@ -957,10 +986,17 @@ int main(int argc, char const *argv[]) {
         // Dump DSPM mempol log as CSV
         printf("Dumping mempol log in 15s...\r\n");
         uart_wait_tx_done();
+        #ifdef XSIM
+        for (volatile uint32_t i = 0; i < 1000; i++) asm volatile ("nop");
+        #else
         for (volatile uint32_t i = 0; i < 100000000; i++) asm volatile ("nop");
+        #endif
 
         uint32_t log_entries = read_32b(DSPM_LOG_BASE);
         if (log_entries > DSPM_LOG_MAX_ENTRIES) log_entries = DSPM_LOG_MAX_ENTRIES;
+        #ifdef XSIM_LOG_CAP
+        if (log_entries > XSIM_LOG_CAP) log_entries = XSIM_LOG_CAP;   // bounded console dump in simulation
+        #endif
         printf("\r\niter,llc_rd,llc_wr,mem_rd,mem_wr,decision,token\r\n");
         for (uint32_t i = 0; i < log_entries; i++) {
             uint32_t w0 = read_32b(DSPM_LOG_BASE + 4 + i * 12);
@@ -987,6 +1023,10 @@ int main(int argc, char const *argv[]) {
        || mhartid == 2 
        || mhartid == 3
         ) {
+        #ifdef XSIM
+        if (mhartid >= 2)
+            write_32b(0x0C002290 + (mhartid - 2) * 0x100, 0);  // see xsim_wake_cores_2_3
+        #endif
         // Debug: print that this core is alive
         printf("    [Core %u] Started, waiting for signal...\r\n", mhartid);
         uart_wait_tx_done();
