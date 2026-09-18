@@ -4,7 +4,7 @@
 #   -DXSIM             wake cores 2 and 3 (the simulator resumes only core 0 over JTAG, the boot ROM parks
 #                      cores 2/3 in wfi until a PLIC interrupt reaches them) and drop the 15 s wall-clock delay
 #                      before the mempol log dump (hours of simulated time)
-#   WORK_READ_LINES    cache lines primed per core: 512 (32 KB) instead of 4096
+#   WORK_READ_LINES    cache lines primed per core: 1024 (64 KB, covers the 768 lines each stage touches) instead of 4096
 #   STAGE_ITERATIONS   4 per stage instead of 10 (the LLC / DRAM / LLC sequence is unchanged)
 #   MAX_IRQ_LOG        256 interrupt log entries per core instead of 5000 (zeroing the table dominates startup)
 #   XSIM_LOG_CAP       at most 100 mempol log lines are printed
@@ -24,7 +24,7 @@ PMU_BUILD_DIR := $(PMU_FW_DIR)/build
 PMU_TEXT_BIN  := $(PMU_BUILD_DIR)/text_section.bin
 PMU_DATA_BIN  := $(PMU_BUILD_DIR)/data_rodata_bss.bin
 
-SIM_DEFINES := -DXSIM -DWORK_READ_LINES=512 -DSTAGE_ITERATIONS=4 -DMAX_IRQ_LOG=256 -DXSIM_LOG_CAP=100
+SIM_DEFINES := -DXSIM -DWORK_READ_LINES=1024 -DSTAGE_ITERATIONS=4 -DMAX_IRQ_LOG=256 -DXSIM_LOG_CAP=100
 
 .PHONY: pmu_firmware
 pmu_firmware:
