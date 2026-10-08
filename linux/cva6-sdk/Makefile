@@ -84,7 +84,8 @@ all: $(CC) isa-sim
 ROOTFS_EXTRAS := $(if $(wildcard cachetest/cachetest.c),rootfs/cachetest.elf,) \
                  $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,) \
                  $(if $(wildcard ../recv/recv.c),rootfs/usr/bin/recv,) \
-                 $(if $(wildcard ../apmu/apmuctl.c),rootfs/usr/bin/apmuctl,)
+                 $(if $(wildcard ../apmu/apmuctl.c),rootfs/usr/bin/apmuctl rootfs/usr/bin/apmu \
+                                                    rootfs/lib/modules/apmu.ko,)
 
 # benchmark for the cache subsystem
 rootfs/cachetest.elf: $(CC)
@@ -100,13 +101,26 @@ rootfs/usr/bin/recv: ../recv/recv.c $(CC)
 	mkdir -p $(dir $@)
 	$(CC) -Wall -O2 ../recv/recv.c -o $@
 
-# Userspace control of the APMU (PMU) over /dev/mem: load PE firmware into
-# ISPM/DSPM, start/stop the PE, program counters. See ../apmu/README.md.
-# Dynamically linked for the same reason as recv above.
-APMU_SRC := ../apmu/apmuctl.c ../apmu/libapmu.c
-rootfs/usr/bin/apmuctl: $(APMU_SRC) ../apmu/libapmu.h ../apmu/apmu_regs.h $(CC)
+# APMU: the apmu kernel module, its front end `apmu`, and the /dev/mem debug
+# tool apmuctl. See ../apmu/README.md. Dynamically linked for the same reason
+# as recv above.
+APMU_HDR := ../apmu/apmu_abi.h ../apmu/apmu_ioctl.h
+rootfs/usr/bin/apmuctl: ../apmu/apmuctl.c ../apmu/apmu_mmio.c ../apmu/apmu_mmio.h ../apmu/apmu_regs.h $(APMU_HDR) $(CC)
 	mkdir -p $(dir $@)
-	$(CC) -Wall -O2 -std=gnu99 -I../apmu $(APMU_SRC) -o $@
+	$(CC) -Wall -O2 -std=gnu99 -I../apmu ../apmu/apmuctl.c ../apmu/apmu_mmio.c -o $@
+
+rootfs/usr/bin/apmu: ../apmu/apmu.c ../apmu/libapmu.c ../apmu/libapmu.h $(APMU_HDR) $(CC)
+	mkdir -p $(dir $@)
+	$(CC) -Wall -O2 -std=gnu99 -I../apmu ../apmu/apmu.c ../apmu/libapmu.c -o $@
+
+# The module needs the configured kernel tree, so build the kernel first; the
+# image build that follows relinks it with this rootfs.
+LINUX_BUILD = buildroot/output/build/linux-$(shell sed -n 's/^BR2_LINUX_KERNEL_VERSION="\(.*\)"/\1/p' $(buildroot_defconfig))
+rootfs/lib/modules/apmu.ko: $(wildcard ../apmu/kmod/*.[ch]) $(APMU_HDR) $(linux_defconfig) $(buildroot_defconfig) $(CC)
+	make -C buildroot linux $(buildroot-mk)
+	$(MAKE) -C ../apmu/kmod KDIR=$(abspath $(LINUX_BUILD)) CROSS_COMPILE=$(TOOLCHAIN_PREFIX)
+	mkdir -p $(dir $@)
+	cp ../apmu/kmod/apmu.ko $@
 
 rootfs/perf: $(CC)
 	make -C Splash-3/codes all
@@ -186,7 +200,7 @@ alsaqr.dtb:
 	dtc -I dts opensbi/platform/$(PLATFORM)/fdt_gen/alsaqr.dts -O dtb -o $@
 
 clean:
-	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/cachetest.elf rootfs/usr/bin/recv
+	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/cachetest.elf rootfs/usr/bin/recv rootfs/usr/bin/apmu rootfs/usr/bin/apmuctl rootfs/lib/modules/apmu.ko
 	rm -rf $(RISCV)/fw_payload.bin $(RISCV)/uImage $(RISCV)/Image.gz
 	make -C u-boot clean
 	make -C opensbi distclean

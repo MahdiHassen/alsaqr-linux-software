@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "libapmu.h"
+#include "apmu_mmio.h"
 
 #define STATUS_OFF      0x00            /* DSPM byte offset of the status word */
 #define STATUS_STARTED  0xBB000001u     /* what the firmware writes when up    */
@@ -40,8 +40,8 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    if (apmu_open(&a, 0) < 0) {
-        fprintf(stderr, "apmu_open: %s\n", apmu_strerror());
+    if (apmu_mmio_open(&a, 0) < 0) {
+        fprintf(stderr, "apmu_mmio_open: %s\n", apmu_strerror());
         return 1;
     }
 
@@ -51,7 +51,7 @@ int main(int argc, char **argv)
      * PE boots from its reset value, as in the known-good baremetal sequence. */
     if (apmu_load_file(&a, argv[1], argc == 3 ? argv[2] : NULL, 0, &img) < 0) {
         fprintf(stderr, "load: %s\n", apmu_strerror());
-        apmu_close(&a);
+        apmu_mmio_close(&a);
         return 1;
     }
     printf("loaded: .text %zu B @ 0x%08llx, .data %zu B @ 0x%08llx, entry 0x%08x\n",
@@ -91,7 +91,7 @@ int main(int argc, char **argv)
                (unsigned long long)(t1 - t0));
     }
 
-    /* Leave it running. `apmuctl halt` parks it again. */
-    apmu_close(&a);
+    /* Leave it running. `apmuctl halt` stops it; the next run is a reboot. */
+    apmu_mmio_close(&a);
     return 0;
 }

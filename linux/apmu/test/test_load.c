@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "libapmu.h"
+#include "apmu_mmio.h"
 
 static int fails;
 
@@ -32,7 +32,7 @@ static void wr(const char *p, const uint32_t *w, size_t n)
 
 int main(int argc, char **argv)
 {
-    static const uint32_t text[] = { 0x33u, 0x33u, 0x104280b7u, 0x8093u, 0x2408113u };
+    static const uint32_t text[] = { 0x33u, 0x33u, 0x104290b7u, 0x8093u, 0x2408113u };
     static const uint32_t data[] = { 0xdeadbeefu, 0x1234u, 0u, 0xffffffffu };
     const char *tp = "/tmp/apmu_t.bin", *dp = "/tmp/apmu_d.bin";
     apmu_image_t im;
@@ -43,7 +43,7 @@ int main(int argc, char **argv)
     wr(tp, text, 5);
     wr(dp, data, 4);
 
-    if (apmu_open(&a, 0) < 0) { fprintf(stderr, "open: %s\n", apmu_strerror()); return 1; }
+    if (apmu_mmio_open(&a, 0) < 0) { fprintf(stderr, "open: %s\n", apmu_strerror()); return 1; }
 
     /* A boot address we can detect being clobbered. */
     apmu_set_boot_addr(&a, 0xcafe0000u);
@@ -86,7 +86,7 @@ int main(int argc, char **argv)
     apmu_halt(&a);
     ck(apmu_is_halted(&a) == 1,                   "halt sets the stall bit");
 
-    apmu_close(&a);
+    apmu_mmio_close(&a);
     printf("\n%s\n", fails ? "FAILURES" : "all checks passed");
     return fails ? 1 : 0;
 }

@@ -1,4 +1,5 @@
-# libapmu / apmuctl -- userspace APMU control for AlSaqr Linux.
+# apmu userspace: libapmu + `apmu` (applications, through the apmu kernel
+# module in kmod/) and apmuctl (debugging over /dev/mem, apmu_mmio).
 #
 # These are Linux userspace programs, so the bundled bare-metal
 # riscv64-unknown-elf toolchain CANNOT build them (newlib has no mmap and no
@@ -6,11 +7,10 @@
 # same search order as ../recv/Makefile.
 #
 # Normally you do not need to run this by hand: cva6-sdk/Makefile builds
-# apmuctl into the rootfs overlay (see ROOTFS_EXTRAS there), so a from-source
-# image build ships it at /usr/bin/apmuctl.
+# both programs and apmu.ko into the rootfs overlay (see ROOTFS_EXTRAS there).
 #
 # Use this Makefile to iterate without a 10-20 min image rebuild:
-#     make            # build apmuctl + libapmu.a
+#     make            # build apmu, apmuctl, libapmu.a
 #     make b64        # paste-to-console bootstrap for an already-booted target
 # or push it over JTAG with ../../scripts/send_file.sh + `recv` (RUNBOOK §8).
 #
@@ -38,10 +38,10 @@ CFLAGS ?= -Wall -Wextra -O2 -std=gnu99 $(if $(STATIC),-static,)
 STRIP ?= $(patsubst %gcc,%strip,$(CC))
 
 LIB_OBJS := libapmu.o
-BINS     := apmuctl
+BINS     := apmu apmuctl
 EXAMPLES := example/apmu_hello
 
-.PHONY: all example clean distclean check b64 install
+.PHONY: all example clean distclean check b64 install test-queue test-link
 
 all: $(BINS)
 
@@ -57,23 +57,28 @@ define need_cc
 	fi
 endef
 
-%.o: %.c libapmu.h apmu_regs.h
+%.o: %.c libapmu.h apmu_ioctl.h apmu_mmio.h apmu_regs.h apmu_abi.h
 	$(need_cc)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 libapmu.a: $(LIB_OBJS)
 	$(AR) rcs $@ $^
 
-apmuctl: apmuctl.o libapmu.a
+apmu: apmu.o libapmu.a
+	$(need_cc)
+	$(CC) $(CFLAGS) $^ -o $@
+	@echo "[ok] built $@"
+
+apmuctl: apmuctl.o apmu_mmio.o
 	$(need_cc)
 	$(CC) $(CFLAGS) $^ -o $@
 	@echo "[ok] built $@"
 
 example: $(EXAMPLES)
 
-example/apmu_hello: example/apmu_hello.c libapmu.a libapmu.h apmu_regs.h
+example/apmu_hello: example/apmu_hello.c apmu_mmio.o apmu_mmio.h apmu_regs.h
 	$(need_cc)
-	$(CC) $(CFLAGS) -I. $< libapmu.a -o $@
+	$(CC) $(CFLAGS) -I. $< apmu_mmio.o -o $@
 	@echo "[ok] built $@"
 
 # Build both flavours, stripped, ready to push to the board with
@@ -87,12 +92,11 @@ dist:
 	$(MAKE) clean
 	$(MAKE) apmuctl
 	$(STRIP) apmuctl
-	$(MAKE) apmuctl.o libapmu.o --always-make >/dev/null 2>&1 || true
-	rm -f apmuctl.o libapmu.o libapmu.a
+	rm -f *.o *.a
 	$(MAKE) apmuctl STATIC=1
 	$(STRIP) apmuctl
 	mv apmuctl apmuctl-static
-	rm -f apmuctl.o libapmu.o libapmu.a
+	rm -f *.o *.a
 	$(MAKE) apmuctl
 	$(STRIP) apmuctl
 	@echo ""
@@ -120,10 +124,11 @@ b64: apmuctl
 # the RISC-V `fence iorw,iorw` in apmu_fence() will not assemble elsewhere --
 # but catches ordinary mistakes with no cross toolchain present.
 check:
-	cc -Wall -Wextra -std=gnu99 -fsyntax-only -I. libapmu.c apmuctl.c example/apmu_hello.c \
+	cc -Wall -Wextra -std=gnu99 -fsyntax-only -I. apmu_mmio.c apmuctl.c libapmu.c apmu.c example/apmu_hello.c \
 	  && echo "[ok] sources compile clean"
 
-install: apmuctl
+install: apmu apmuctl
+	install -D -m 0755 apmu $(DESTDIR)/usr/bin/apmu
 	install -D -m 0755 apmuctl $(DESTDIR)/usr/bin/apmuctl
 
 clean:
@@ -135,7 +140,7 @@ distclean: clean
 
 # ------------------------------------------------------------------
 # Offline loader test. Builds and runs NATIVELY on the development host (not
-# the board): APMU_DEVMEM points apmu_open() at a sparse file instead of
+# the board): APMU_DEVMEM points apmu_mmio_open() at a sparse file instead of
 # /dev/mem, so the raw-.bin load path -- placement, stride, verify, and the
 # fact that loading leaves PMC_BOOT_ADDR alone -- is checked without hardware.
 # Hardware behaviour (32-bit-only bus access, ordering, whether the PE actually
@@ -144,5 +149,19 @@ distclean: clean
 test:
 	rm -f /tmp/apmu_backing.bin
 	python3 -c "open('/tmp/apmu_backing.bin','wb').truncate(0x10460000)"
-	cc -Wall -Wextra -std=gnu99 -O1 -I. -Itest test/test_load.c libapmu.c -o /tmp/apmu_test_load
+	cc -Wall -Wextra -std=gnu99 -O1 -I. -Itest test/test_load.c apmu_mmio.c -o /tmp/apmu_test_load
 	/tmp/apmu_test_load /tmp/apmu_backing.bin
+
+# Host queue vs apmu-os's PE queue code on the same backing file.
+APMU_OS ?= ../../../apmu-os
+test-queue:
+	rm -f /tmp/apmu_backing.bin
+	python3 -c "open('/tmp/apmu_backing.bin','wb').truncate(0x10460000)"
+	cc -Wall -Wextra -std=gnu99 -O1 -I. -I$(APMU_OS)/common -I$(APMU_OS)/common/include \
+	  test/test_queue.c apmu_mmio.c -o /tmp/apmu_test_queue
+	/tmp/apmu_test_queue /tmp/apmu_backing.bin
+
+# kmod/apmu_link.c against ld.lld on every apmu-os component (in the build VM,
+# after `make components` in apmu-os).
+test-link:
+	test/test_link.sh $(APMU_OS)

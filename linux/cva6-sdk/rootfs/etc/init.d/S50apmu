@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# apmu: load the APMU kernel module and create /dev/apmu (this image has no
+# devtmpfs, and busybox has makedevs but not mknod). See linux/apmu/README.md.
+#
+
+case "$1" in
+  start)
+	insmod /lib/modules/apmu.ko || exit 1
+	set -- $(tr ':' ' ' < /sys/class/misc/apmu/dev)
+	rm -f /dev/apmu
+	echo "/dev/apmu c 666 0 0 $1 $2 - - -" > /tmp/apmu.devtab
+	makedevs -d /tmp/apmu.devtab / > /dev/null
+	rm -f /tmp/apmu.devtab
+	;;
+  stop)
+	rmmod apmu
+	;;
+  *)
+	echo "Usage: $0 {start|stop}"
+	exit 1
+esac

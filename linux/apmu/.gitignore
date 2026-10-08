@@ -7,3 +7,10 @@ libapmu.a
 *.o
 example/apmu_hello
 apmuctl-static
+/apmu
+kmod/*.ko
+kmod/*.mod
+kmod/*.mod.c
+kmod/.*.cmd
+kmod/Module.symvers
+kmod/modules.order

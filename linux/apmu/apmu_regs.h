@@ -75,49 +75,47 @@
 #define APMU_NCOUNTERS_MAX      32
 #define APMU_NCOUNTERS_DEFAULT  32
 
-/* Scratchpads. Sizes from host_domain.sv: ISPM_NUM_WORDS=1024, DSPM_NUM_WORDS=32768,
+/* Scratchpads. Sizes from host_domain.sv: ISPM_NUM_WORDS=2048, DSPM_NUM_WORDS=32768,
  * one word = 4 B. */
 #define APMU_ISPM_BASE      0x10427000UL
-#define APMU_ISPM_SIZE      0x1000UL      /*   4 KiB */
-#define APMU_DSPM_BASE      0x10428000UL
+#define APMU_ISPM_SIZE      0x2000UL      /*   8 KiB */
+#define APMU_DSPM_BASE      0x10429000UL
 #define APMU_DSPM_SIZE      0x20000UL     /* 128 KiB */
 
-/* By convention (pmu_sad_profile/pmu_bench.c:352 and every pmu_firmware
- * linker.ld) the firmware's data image is loaded at DSPM+0x200, leaving the
- * first 0x200 bytes as a host<->PE mailbox. */
+/* Old pmu_firmware convention (data image at DSPM+0x200). apmu-os uses the
+ * layout in apmu_abi.h instead. */
 #define APMU_DSPM_DATA_OFF  0x200UL
 
 /* One contiguous mmap covers registers + ISPM + DSPM.
  * APMU_BASE + (32+2)*0x1000 == 0x10427000 == APMU_ISPM_BASE, so the register
  * window abuts ISPM with no gap. */
 #define APMU_WIN_BASE       APMU_BASE
-#define APMU_WIN_END        (APMU_DSPM_BASE + APMU_DSPM_SIZE)   /* 0x10448000 */
-#define APMU_WIN_SIZE       (APMU_WIN_END - APMU_WIN_BASE)      /* 0x43000    */
+#define APMU_WIN_END        (APMU_DSPM_BASE + APMU_DSPM_SIZE)   /* 0x10449000 */
+#define APMU_WIN_SIZE       (APMU_WIN_END - APMU_WIN_BASE)      /* 0x44000    */
 
 /* ------------------------------------------------------------------ */
 /* Event selection / event info encodings                              */
-/* Copied verbatim from tests/pmu_test/pmu_defines.h.                  */
+/* 9-port bitstreams; same values as apmu-os pmu_hw_desc.h.            */
 /* ------------------------------------------------------------------ */
 
+/* Event select: port, source, event; one value/mask nibble pair each.
+ * Ports: 1-4 CVA6 EVU of core 0-3, 5-8 core 0-3 <-> LLC, 9 LLC <-> DRAM.
+ * Events: 1 read req, 2 write req, 3 read resp, 4 write resp.
+ * On port 9 the source is the initiating core (core 0 = source 0 verified). */
+
 /* Core <-> LLC */
-#define APMU_LLC_RD_REQ          0x00001F
-#define APMU_LLC_RD_REQ_CORE(n)  (0x2F001F + ((uint32_t)(n) << 20))
-#define APMU_LLC_RD_RES          0x00003F
-#define APMU_LLC_RD_RES_CORE(n)  (0x2F003F + ((uint32_t)(n) << 20))
-#define APMU_LLC_WR_REQ          0x00002F
-#define APMU_LLC_WR_REQ_CORE(n)  (0x2F002F + ((uint32_t)(n) << 20))
-#define APMU_LLC_WR_RES          0x00004F
-#define APMU_LLC_WR_RES_CORE(n)  (0x2F004F + ((uint32_t)(n) << 20))
+#define APMU_LLC_RD_REQ_CORE(n)  (0x5F001F + ((uint32_t)(n) << 20))
+#define APMU_LLC_WR_REQ_CORE(n)  (0x5F002F + ((uint32_t)(n) << 20))
+#define APMU_LLC_RD_RES_CORE(n)  (0x5F003F + ((uint32_t)(n) << 20))
+#define APMU_LLC_WR_RES_CORE(n)  (0x5F004F + ((uint32_t)(n) << 20))
 
 /* LLC <-> main memory */
-#define APMU_MEM_RD_REQ          0x1F001F
-#define APMU_MEM_WR_REQ          0x1F002F
-#define APMU_MEM_RD_RES          0x1F003F
-#define APMU_MEM_WR_RES          0x1F004F
-#define APMU_MEM_RD_REQ_CORE(n)  (0x1F4F1F + ((uint32_t)(n) << 12))
-#define APMU_MEM_WR_REQ_CORE(n)  (0x1F4F2F + ((uint32_t)(n) << 12))
-#define APMU_MEM_RD_RES_CORE(n)  (0x1F4F3F + ((uint32_t)(n) << 12))
-#define APMU_MEM_WR_RES_CORE(n)  (0x1F4F4F + ((uint32_t)(n) << 12))
+#define APMU_MEM_RD_REQ          0x9F001F
+#define APMU_MEM_WR_REQ          0x9F002F
+#define APMU_MEM_RD_RES          0x9F003F
+#define APMU_MEM_WR_RES          0x9F004F
+#define APMU_MEM_RD_RES_CORE(n)  (0x9F0F3F + ((uint32_t)(n) << 12))
+#define APMU_MEM_WR_RES_CORE(n)  (0x9F0F4F + ((uint32_t)(n) << 12))
 
 /* Event info register */
 #define APMU_ADD_RESP_LAT        0x8001E0

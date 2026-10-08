@@ -1,9 +1,9 @@
 /*
  * apmuctl -- command-line control of the AlSaqr APMU from Linux userspace.
  *
- * Thin shell over libapmu so the whole PMU is reachable without writing a
- * program: load PE firmware into ISPM/DSPM, start and stop the PE, program
- * counters, and poke at the scratchpads.
+ * A debugging tool over apmu_mmio (/dev/mem): load PE firmware into
+ * ISPM/DSPM, start and stop the PE, program counters, and poke at the
+ * scratchpads. Components are managed by the apmu kernel module (`apmu`).
  *
  *   apmuctl info
  *   apmuctl load text.bin data.bin --run
@@ -23,7 +23,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "libapmu.h"
+#include "apmu_mmio.h"
 
 static apmu_t A;
 static unsigned opt_nc;      /* -c N   : counter count override          */
@@ -36,7 +36,7 @@ static void die(const char *fmt, ...)
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
     va_end(ap);
-    apmu_close(&A);
+    apmu_mmio_close(&A);
     exit(1);
 }
 
@@ -222,9 +222,7 @@ static void dump_words(uint64_t base, uint64_t off, unsigned n)
  * the loader and the register addresses are all good, and any later trouble is
  * in your own firmware rather than in apmuctl.
  *
- * Note word 0: "The first instruction to the core is discarded so it must be
- * NOP" (pmu_test_func.c:176). That is the quirk behind the -4 in the linker
- * scripts; apmu-os handles it with two leading NOPs in crt0.s.
+ * Word 0 remains a NOP.  The fixed fetch interface executes it normally.
  */
 #define BUBBLE_LEN 10
 
@@ -241,7 +239,7 @@ static uint32_t enc_addi(unsigned rd, unsigned rs1, int32_t imm12)
 static void cmd_example_bubble(void)
 {
     uint32_t prog[] = {
-        0x33u,        /* 0: NOP -- first instruction is discarded by the PE */
+        0x33u,        /* 0: NOP */
         0x00000000u,  /* 1: lui  x1, (arr_base >> 12)   -- patched below */
         0x00000000u,  /* 2: addi x1, x1, (arr_base & 0xFFF) */
         0x00000000u,  /* 3: addi x2, x1, (LEN-1)*4 */
@@ -400,7 +398,7 @@ int main(int argc, char **argv)
     }
     cmd = argv[1];
 
-    if (apmu_open(&A, opt_nc) < 0) {
+    if (apmu_mmio_open(&A, opt_nc) < 0) {
         fprintf(stderr, "apmuctl: %s\n", apmu_strerror());
         return 1;
     }
@@ -518,10 +516,10 @@ int main(int argc, char **argv)
     } else {
         fprintf(stderr, "apmuctl: unknown command '%s'\n\n", cmd);
         usage(stderr);
-        apmu_close(&A);
+        apmu_mmio_close(&A);
         return 2;
     }
 
-    apmu_close(&A);
+    apmu_mmio_close(&A);
     return 0;
 }
