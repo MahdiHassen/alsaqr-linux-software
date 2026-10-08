@@ -7,9 +7,11 @@
 # sysbus`: the debug module's system-bus master drives the SoC AXI crossbar
 # directly, independent of the harts, so no halt is needed.
 #
-# The file lands in the 16 MB window at 0x9f000000, which the DTB deliberately
-# excludes from Linux's memory node (build it with MEM_SIZE=0x1F000000; see
-# RUNBOOK §8). Receive it on the target with linux/recv/recv.
+# The file lands in the 16 MB window at 0x9f000000, which must be outside
+# Linux's memory: boot with DTB= set to a tree built from
+# linux/cva6-sdk/configs/alsaqr.dts (boot_linux.sh then hands it to Linux; the
+# default prebuilt boot runs on the boot ROM's tree, where the window is Linux
+# RAM). Receive it on the target with linux/recv/recv.
 #
 # Wire format at 0x9f000000:
 #     +0x0000  magic   'ALSQ' (0x51534c41)  <- written LAST
