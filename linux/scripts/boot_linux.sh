@@ -65,6 +65,10 @@ OPENOCD_ARGS+=(
     -c "set _TARGET $TARGET"
     -f "openocd.cfg"
     -c "init"
+    # Halt every hart before cores 2/3 reach the boot-ROM WFI. Once parked
+    # there, those harts do not respond to a later debug halt request.
+    -c "reset halt"
+    -c "halt"
     -c "echo \"Ready for Remote Connections\""
 )
 
