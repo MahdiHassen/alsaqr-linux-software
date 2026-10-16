@@ -1,0 +1,202 @@
+/dts-v1/;
+
+/*
+ * AlSaqr on the VCU118 with the accelerator socket exposed to Linux (he-soc hardware/accel/README.md):
+ *   - the socket window (slot s at 0x1000_0000 + s * 0x1_0000, PLIC interrupt 9) as one generic-uio device, so a
+ *     user-space driver maps the registers through /dev/uio0 and waits for the interrupt with read();
+ *     needs "uio_pdrv_genirq.of_id=generic-uio" in bootargs (below) and CONFIG_UIO_PDRV_GENIRQ=y
+ *   - a 16 MB reserved DMA pool at the top of the DRAM: physically contiguous buffers at a known address for
+ *     user-space drivers (/dev/mem), and the coherent-allocation pool of a kernel driver whose node says
+ *     memory-region = <&socket_dma>
+ * The socket's DMA is a port of the coherence unit, so buffers anywhere in DRAM need no cache maintenance.
+ */
+
+/ {
+	#address-cells = <0x02>;
+	#size-cells = <0x02>;
+	compatible = "eth,occamy-dev";
+	model = "eth,occamy";
+
+	chosen {
+		stdout-path = "/soc/uart@40000000:38400";
+		bootargs = "earlycon=sbi console=ttyS0,38400 keep_bootcon maxcpus=1 uio_pdrv_genirq.of_id=generic-uio";
+	};
+
+	memory@1C000000 {
+		device_type = "memory";
+		reg = <0x00 0x1c000000 0x00 0x1000>;
+	};
+
+	/* DDR backing the SoC: 512 MB at 0x80000000 .. 0xA0000000 */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x00 0x80000000 0x00 0x20000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		ranges;
+
+		socket_dma: dma-pool@9f000000 {
+			compatible = "shared-dma-pool";
+			reg = <0x00 0x9f000000 0x00 0x1000000>;
+			no-map;
+		};
+	};
+
+	cpus {
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+		timebase-frequency = <0xF4240>;	/* 1 MHz — matches OpenSBI ACLINT mtimer */
+
+		cpu@0 {
+			device_type = "cpu";
+			status = "okay";
+			compatible = "eth,ariane", "riscv";
+			clock-frequency = <0x2faf080>;
+			riscv,isa = "rv64fimadch";
+			mmu-type = "riscv,sv39";
+			tlb-split;
+			reg = <0x00>;
+
+			interrupt-controller {
+				#address-cells = <0x01>;
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+				phandle = <0x01>;
+			};
+		};
+
+		cpu@1 {
+			device_type = "cpu";
+			status = "disabled";
+			compatible = "eth,ariane", "riscv";
+			clock-frequency = <0x2faf080>;
+			riscv,isa = "rv64fimadch";
+			mmu-type = "riscv,sv39";
+			tlb-split;
+			reg = <0x01>;
+
+			interrupt-controller {
+				#address-cells = <0x01>;
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+				phandle = <0x02>;
+			};
+		};
+
+		cpu@2 {
+			device_type = "cpu";
+			status = "disabled";
+			compatible = "eth,ariane", "riscv";
+			clock-frequency = <0x2faf080>;
+			riscv,isa = "rv64fimadch";
+			mmu-type = "riscv,sv39";
+			tlb-split;
+			reg = <0x02>;
+
+			interrupt-controller {
+				#address-cells = <0x01>;
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+				phandle = <0x04>;
+			};
+		};
+
+		cpu@3 {
+			device_type = "cpu";
+			status = "disabled";
+			compatible = "eth,ariane", "riscv";
+			clock-frequency = <0x2faf080>;
+			riscv,isa = "rv64fimadch";
+			mmu-type = "riscv,sv39";
+			tlb-split;
+			reg = <0x03>;
+
+			interrupt-controller {
+				#address-cells = <0x01>;
+				#interrupt-cells = <0x01>;
+				interrupt-controller;
+				compatible = "riscv,cpu-intc";
+				phandle = <0x05>;
+			};
+		};
+	};
+
+	soc {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		compatible = "eth,ariane-bare-soc", "simple-bus";
+		ranges;
+
+		clint@2000000 {
+			compatible = "riscv,clint0";
+			/* per-cpu pairs: <intc-phandle 0x03 (M-soft) intc-phandle 0x07 (M-timer)> */
+			interrupts-extended = <
+				0x01 0x03 0x01 0x07
+				0x02 0x03 0x02 0x07
+				0x04 0x03 0x04 0x07
+				0x05 0x03 0x05 0x07
+			>;
+			reg = <0x00 0x2000000 0x00 0xc0000>;
+			reg-names = "control";
+		};
+
+		interrupt-controller@c000000 {
+			#address-cells = <0x00>;
+			#interrupt-cells = <0x01>;
+			compatible = "riscv,plic0";
+			interrupt-controller;
+			/* per-cpu pairs: <intc-phandle 0x0b (M-ext) intc-phandle 0x09 (S-ext)> */
+			interrupts-extended = <
+				0x01 0x0b 0x01 0x09
+				0x02 0x0b 0x02 0x09
+				0x04 0x0b 0x04 0x09
+				0x05 0x0b 0x05 0x09
+			>;
+			reg = <0x00 0xc000000 0x00 0x4000000>;
+			riscv,max-priority = <0x07>;
+			riscv,ndev = <0xff>;
+			phandle = <0x03>;
+		};
+
+		debug-controller@0 {
+			compatible = "riscv,debug-013";
+			interrupts-extended = <0x01 0xffff 0x02 0xffff 0x04 0xffff 0x05 0xffff>;
+			reg = <0x00 0x00 0x00 0x1000>;
+			reg-names = "control";
+		};
+
+		uart@40000000 {
+			compatible = "ns16550";
+			reg = <0x00 0x40000000 0x00 0x1000>;
+			clock-frequency = <0x2faf080>;
+			current-speed = <0x9600>;
+			interrupt-parent = <0x03>;
+			interrupts = <0x02>;
+			reg-shift = <0x02>;
+			reg-io-width = <0x04>;
+		};
+
+		timer@18000000 {
+			compatible = "pulp,apb_timer";
+			interrupts = <0x04 0x05 0x06 0x07>;
+			reg = <0x00 0x18000000 0x00 0x1000>;
+			interrupt-parent = <0x03>;
+			reg-names = "control";
+		};
+
+		/* accelerator socket: 8 slots of 64 KB (registers) + the QoS probe, one shared level interrupt */
+		accel-socket@10000000 {
+			compatible = "generic-uio";
+			reg = <0x00 0x10000000 0x00 0x400000>;
+			interrupt-parent = <0x03>;
+			interrupts = <0x09>;
+			memory-region = <&socket_dma>;
+		};
+	};
+};
