@@ -171,6 +171,36 @@
 			reg-names = "control";
 		};
 
+		/* Xilinx AXI 1G Ethernet (he-soc hardware/host/xilinx_eth_subsys.sv): SGMII to the VCU118's DP83867, which
+		 * must drive the 625 MHz SGMII clock (ti,sgmii-ref-clock-output-enable). The AXI DMA is at +0x40000, its
+		 * interrupts <tx rx>; the MAC's own interrupt is PLIC 3. The DMA is a port of the coherence unit: coherent. */
+		ethernet@30000000 {
+			compatible = "xlnx,axi-ethernet-1.00.a";
+			reg = <0x00 0x30000000 0x00 0x40000>;
+			interrupt-parent = <0x03>;
+			interrupts = <0x03>;
+			phy-mode = "sgmii";
+			phy-handle = <&eth_phy>;
+			local-mac-address = [00 0a 35 01 02 03];
+			xlnx,rxmem = <0x2000>;
+			xlnx,txcsum = <0x00>;
+			xlnx,rxcsum = <0x00>;
+			axistream-connected = <&eth_dma>;
+			mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				eth_phy: ethernet-phy@3 {
+					reg = <3>;
+					ti,sgmii-ref-clock-output-enable;
+				};
+			};
+		};
+		eth_dma: dma@30040000 {
+			compatible = "xlnx,axi-dma-1.00.a";
+			reg = <0x00 0x30040000 0x00 0x10000>;
+			interrupt-parent = <0x03>;
+			interrupts = <0x0b 0x0f>;
+		};
 		uart@40000000 {
 			compatible = "ns16550";
 			reg = <0x00 0x40000000 0x00 0x1000>;

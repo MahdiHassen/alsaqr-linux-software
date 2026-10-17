@@ -1,0 +1,9 @@
+#!/bin/sh
+# Bring the Xilinx AXI Ethernet up and ask the LAN for an address (background, keeps trying).
+case "$1" in
+  start)
+    ifconfig eth0 up 2>/dev/null && udhcpc -i eth0 -b -S -t 10 -A 5 >/dev/null 2>&1
+    ;;
+  stop)  udhcpc -i eth0 -R 2>/dev/null; ifconfig eth0 down ;;
+  restart) $0 stop; $0 start ;;
+esac
