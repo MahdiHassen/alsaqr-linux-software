@@ -1,9 +1,8 @@
 #!/bin/sh
-# Bring the Xilinx AXI Ethernet up and ask the LAN for an address (background, keeps trying).
+# Bring the Xilinx AXI Ethernet up on the private link to the host PC (10.42.0.1): a fixed address, no DHCP.
+# The SoC is never on a wider network; the PC decides what it sends to the board.
 case "$1" in
-  start)
-    ifconfig eth0 up 2>/dev/null && udhcpc -i eth0 -b -S -t 10 -A 5 >/dev/null 2>&1
-    ;;
-  stop)  udhcpc -i eth0 -R 2>/dev/null; ifconfig eth0 down ;;
+  start)   ifconfig eth0 10.42.0.2 netmask 255.255.255.0 up 2>/dev/null ;;
+  stop)    ifconfig eth0 down ;;
   restart) $0 stop; $0 start ;;
 esac

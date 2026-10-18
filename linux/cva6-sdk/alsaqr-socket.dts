@@ -18,8 +18,8 @@
 	model = "eth,occamy";
 
 	chosen {
-		stdout-path = "/soc/uart@40000000:38400";
-		bootargs = "earlycon=sbi console=ttyS0,38400 keep_bootcon maxcpus=1 uio_pdrv_genirq.of_id=generic-uio";
+		stdout-path = "/soc/uart@40000000:115200";
+		bootargs = "earlycon=sbi console=hvc0 console=ttyS0,115200 earlyprintk uio_pdrv_genirq.of_id=generic-uio";
 	};
 
 	memory@1C000000 {
@@ -48,7 +48,7 @@
 	cpus {
 		#address-cells = <0x01>;
 		#size-cells = <0x00>;
-		timebase-frequency = <0xF4240>;	/* 1 MHz — matches OpenSBI ACLINT mtimer */
+		timebase-frequency = <0x17d7840>;	/* 25 MHz: the CLINT mtime rate (OpenSBI prints 1 MHz for its mtimer, but the counter ticks at 25 MHz) */
 
 		cpu@0 {
 			device_type = "cpu";
@@ -71,7 +71,7 @@
 
 		cpu@1 {
 			device_type = "cpu";
-			status = "disabled";
+			status = "okay";
 			compatible = "eth,ariane", "riscv";
 			clock-frequency = <0x2faf080>;
 			riscv,isa = "rv64fimadch";
@@ -90,7 +90,7 @@
 
 		cpu@2 {
 			device_type = "cpu";
-			status = "disabled";
+			status = "okay";
 			compatible = "eth,ariane", "riscv";
 			clock-frequency = <0x2faf080>;
 			riscv,isa = "rv64fimadch";
@@ -109,7 +109,7 @@
 
 		cpu@3 {
 			device_type = "cpu";
-			status = "disabled";
+			status = "okay";
 			compatible = "eth,ariane", "riscv";
 			clock-frequency = <0x2faf080>;
 			riscv,isa = "rv64fimadch";
