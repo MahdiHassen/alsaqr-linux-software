@@ -1,0 +1,6 @@
+# Read by /etc/init.d/S50dropbear (buildroot), which adds -R: host keys are
+# generated on first use, so they change every boot.
+#
+# -B: root has no password. The board is only on the point-to-point link to
+# the host PC (10.42.0.1 <-> 10.42.0.2, see S45eth), never on a wider network.
+DROPBEAR_ARGS="-B"
