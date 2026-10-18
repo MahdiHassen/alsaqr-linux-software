@@ -5,6 +5,13 @@ platform (CVA6 + Ibex PMU). Includes the RISC-V toolchain, OpenOCD with its
 shared library dependencies, helper scripts, and a curated set of tests.
 Clone, source, build, run — no system-wide installs needed.
 
+> **This public copy does not ship the toolchain.** `toolchain/` (RISC-V GCC 15.1 for rv64 and rv32, GDB,
+> about 5 GB of binaries) is above GitHub's file size limit and was removed from the history. Build or download
+> a riscv64-unknown-elf / riscv32-unknown-elf GCC 15.1 toolchain and put (or symlink) it at `toolchain/rv64` and
+> `toolchain/rv32` as `source.sh` expects (plus the `riscv-none-elf-*` symlinks in `toolchain/shim` for the PMU firmware).
+> The FPGA bitstreams (`bitstreams/*.bit`, 76 MB each) are not here either; `bitstreams/alsaqr-bitstream-info.txt`
+> describes them, and the he-soc repository builds them. Everything else (OpenOCD, tests, Linux) is here.
+
 > **Platform:** all shipped binaries (RISC-V GCC/GDB, OpenOCD, vendored .so
 > deps) are **x86_64 Linux**. On other platforms (ARM, macOS, Windows) you'll
 > need to rebuild the toolchain and OpenOCD from source and drop the binaries
