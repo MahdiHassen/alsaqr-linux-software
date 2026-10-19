@@ -17,8 +17,11 @@
  * RCID 0, which every other hart and the kernel between measurements run under, is kept out of the victim's ways in
  * the partitioned cases: otherwise its few allocations evict the idle victim's lines, which are the least recently used.
  * The LLC's cached address range (SoC control 0x1A106018/1C, 0x8000_0000-0x8080_0000 at reset: only the kernel image)
- * is extended to the top of RAM while the module is loaded, so the buffers are LLC-cached; rmmod flushes the LLC
- * and restores it. The LLC is the single path to DRAM for every master, so this is coherent.
+ * is extended to the top of RAM on load, so the buffers are LLC-cached, and LEFT THAT WAY: shrinking the range on a
+ * running system wedges the SoC (lines of the dropped region stay in the LLC, dirty ones included, and the next
+ * access to them bypasses it; reproduced even with every hart quiesced under stop_machine). Widening is safe: the new
+ * region had no lines in the LLC. The LLC is the single path to DRAM for every master, so caching all of RAM is
+ * coherent; the netboot loader sets the full range before Linux starts, in which case this is a no-op.
  *
  * Hop latency under load is dominated by the coherence unit, which serialises the two harts' transactions
  * (hardware/docs/qos.md), so the number that shows the partition working is "lines lost", not cycles per hop.
@@ -265,10 +268,12 @@ static int __init llcpart_init(void)
 	/* the LLC caches only the kernel image at reset: cover the buffers (all of RAM) while we run */
 	old_start = readl(sc + SC_CACHE_START); old_end = readl(sc + SC_CACHE_END);
 	saved_start = old_start; saved_end = old_end;
-	writel(RAM_TOP, sc + SC_CACHE_END);
+	if (old_end < RAM_TOP)
+		writel(RAM_TOP, sc + SC_CACHE_END);                  /* widen only; never shrink (see above) */
 	writel(1, sc + SC_CNT_EN);
-	pr_info("llcpart: LLC %u ways x %u sets x %u B = %u KB; cached range 0x%08x-0x%08x extended to 0x%08lx\n",
-		asso, sets, LINE, asso * sets * LINE / 1024, old_start, old_end, RAM_TOP);
+	pr_info("llcpart: LLC %u ways x %u sets x %u B = %u KB; cached range 0x%08x-0x%08x%s\n",
+		asso, sets, LINE, asso * sets * LINE / 1024, old_start, readl(sc + SC_CACHE_END),
+		old_end < RAM_TOP ? " (widened from the kernel image only; stays)" : "");
 	pr_info("llcpart: victim %d KB = %u lines (%u per set) on cpu %d rcid %d (pa 0x%llx); aggressor %d KB on cpu %d rcid %d (pa 0x%llx); %d hops\n",
 		victim_kb, nlines, nlines / sets, victim_cpu, rcid_v, (u64)virt_to_phys(victim), aggr_kb, aggr_cpu, rcid_a, (u64)virt_to_phys(aggr), hops);
 
@@ -284,7 +289,7 @@ static int __init llcpart_init(void)
 		u64 *v = victim; unsigned n = nlines;
 		run_sweep(asso);
 		victim = v; nlines = n;
-		pr_info("llcpart: sweep done (rmmod llcpart flushes the LLC and restores the cached range)\n");
+		pr_info("llcpart: sweep done\n");
 		return 0;
 	}
 
@@ -308,7 +313,7 @@ static int __init llcpart_init(void)
 		run_case(name, true);
 	}
 	set_mask(rcid_v, 0xFFFF); set_mask(rcid_a, 0xFFFF); set_mask(0, 0xFFFF);
-	pr_info("llcpart: done (rmmod llcpart flushes the LLC and restores the cached range)\n");
+	pr_info("llcpart: done\n");
 	return 0;
 
 out_free:
@@ -323,13 +328,10 @@ out_unmap:
 static void __exit llcpart_exit(void)
 {
 	set_mask(rcid_v, 0xFFFF); set_mask(rcid_a, 0xFFFF); set_mask(0, 0xFFFF);
-	llc_flush();
-	writel(saved_start, sc + SC_CACHE_START);
-	writel(saved_end, sc + SC_CACHE_END);
 	free_pages((unsigned long)victim, victim_order);
 	free_pages((unsigned long)aggr, aggr_order);
 	iounmap(sc); iounmap(llc);
-	pr_info("llcpart: LLC flushed, cached range restored to 0x%08x-0x%08x\n", saved_start, saved_end);
+	pr_info("llcpart: unloaded; masks reset, the LLC cached range stays 0x%08x-0x%08x\n", saved_start, (u32)RAM_TOP);
 }
 
 module_init(llcpart_init);

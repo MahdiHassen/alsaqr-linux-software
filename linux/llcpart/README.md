@@ -9,7 +9,7 @@ make                 # llcpart.ko, built against cva6-sdk/buildroot/output/build
 make run             # scp to the board, insmod, print the results (dmesg | grep llcpart)
 make run PARAMS="victim_kb=512 ways_v=8 aggr_cpu=2"
 make sweep           # latency vs working set for 16/8/4/2/1 ways -> llcpart_sweep.txt, llcpart_sweep.png
-ssh root@10.42.0.2 rmmod llcpart      # flushes the LLC and restores its cached range
+ssh root@10.42.0.2 rmmod llcpart      # resets the way masks
 ```
 
 By hand on the board: `/root/insmodp /root/llcpart.ko sweep=1` (or any `param=value`), `rmmod llcpart`, `dmesg`.
@@ -19,7 +19,10 @@ parameters; the next bundle build has the full insmod.
 What it does, on insmod:
 
 1. Extends the LLC's cached address range (SoC control `0x1A106018/1C`, only the kernel image at reset) to the top
-   of RAM so its buffers are LLC-cached, and enables the LLC hit/miss counters.
+   of RAM so its buffers are LLC-cached, and enables the LLC hit/miss counters. The range stays widened: shrinking
+   it on a running system wedges the SoC (the dropped region's lines, dirty ones included, stay in the LLC while
+   new accesses bypass it; reproduced even under `stop_machine`). Widening is safe, and the netboot loader now
+   sets the full range before Linux, so on a fresh boot this step is a no-op.
 2. Builds a random pointer cycle through `victim_kb` (default 256 KB = 4096 lines, 4 per LLC set) and chases it with
    interrupts off on `victim_cpu` under `rcid_v` (srmcfg CSR 0x181, written on that hart for the duration of each
    measurement). Cycles per hop come from `rdcycle`, LLC read misses from the SoC-control counter.
