@@ -82,12 +82,21 @@ all: $(CC) isa-sim
 # not part of this bundle; only depend on them when their sources are
 # actually present, so a from-source build works without them.
 ROOTFS_EXTRAS := $(if $(wildcard cachetest/cachetest.c),rootfs/cachetest.elf,) \
-                 $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,)
+                 $(if $(wildcard Splash-3/codes/Makefile),rootfs/perf,) \
+                 $(if $(wildcard ../apmu/apmuctl.c),rootfs/usr/bin/apmuctl,)
 
 # benchmark for the cache subsystem
 rootfs/cachetest.elf: $(CC)
 	cd ./cachetest/ && $(CC) cachetest.c -o cachetest.elf
 	cp ./cachetest/cachetest.elf $@
+
+# apmuctl: raw control of the APMU over /dev/mem (../apmu/apmuctl.c). Built
+# dynamically on purpose: $(CC) is buildroot's own toolchain, so the libc
+# matches the rootfs by construction, and -static would need a static libc that
+# the buildroot config does not necessarily install.
+rootfs/usr/bin/apmuctl: ../apmu/apmuctl.c ../apmu/apmu_mmio.c ../apmu/apmu_mmio.h ../apmu/apmu_regs.h ../apmu/apmu_abi.h $(CC)
+	mkdir -p $(dir $@)
+	$(CC) -Wall -O2 -std=gnu99 -I../apmu ../apmu/apmuctl.c ../apmu/apmu_mmio.c -o $@
 
 rootfs/perf: $(CC)
 	make -C Splash-3/codes all
@@ -167,7 +176,7 @@ alsaqr.dtb:
 	dtc -I dts opensbi/platform/$(PLATFORM)/fdt_gen/alsaqr.dts -O dtb -o $@
 
 clean:
-	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/cachetest.elf
+	rm -rf $(RISCV)/vmlinux cachetest/*.elf rootfs/cachetest.elf rootfs/usr/bin/apmuctl
 	rm -rf $(RISCV)/fw_payload.bin $(RISCV)/uImage $(RISCV)/Image.gz
 	make -C u-boot clean
 	make -C opensbi distclean
