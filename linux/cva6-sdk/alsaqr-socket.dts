@@ -180,7 +180,11 @@
 			interrupt-parent = <0x03>;
 			interrupts = <0x03>;
 			phy-mode = "sgmii";
+			/* Linux 6.1 drives the SGMII PCS/PMA (MDIO 1) itself, from pcs-handle, with in-band
+			 * auto-negotiation; without pcs-handle it would use the DP83867 at MDIO 3 as the PCS. */
+			managed = "in-band-status";
 			phy-handle = <&eth_phy>;
+			pcs-handle = <&eth_pcs>;
 			local-mac-address = [00 0a 35 01 02 03];
 			xlnx,rxmem = <0x2000>;
 			xlnx,txcsum = <0x00>;
@@ -189,6 +193,12 @@
 			mdio {
 				#address-cells = <1>;
 				#size-cells = <0>;
+				/* The PCS answers on MDIO only once the DP83867 drives the SGMII clock (when eth0 is
+				 * opened), so name its id; the kernel then registers it without reading it. */
+				eth_pcs: ethernet-phy@1 {
+					compatible = "ethernet-phy-id0174.0c00";
+					reg = <1>;
+				};
 				eth_phy: ethernet-phy@3 {
 					reg = <3>;
 					ti,sgmii-ref-clock-output-enable;
