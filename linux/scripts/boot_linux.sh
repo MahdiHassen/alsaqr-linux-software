@@ -27,6 +27,10 @@ GDB_BIN_LOCAL="${GDB_BIN:-$ALSAQR_ROOT/toolchain/rv64/bin/riscv64-unknown-elf-gd
 export OPENOCD_SCRIPTS="${OPENOCD_SCRIPTS:-$ALSAQR_ROOT/openocd/tcl}"
 
 PAYLOAD="${PAYLOAD:-$LINUX_DIR/prebuilt/fw_payload.elf}"
+# An explicit DTB is handed to OpenSBI in a1, so Linux boots on it. Without
+# a1, OpenSBI copies the boot ROM's own device tree over it, which is what the
+# default (prebuilt) boot has always run on, so keep that unchanged.
+PASS_DTB="${DTB:+1}"
 DTB="${DTB:-$LINUX_DIR/prebuilt/alsaqr.dtb}"
 DTB_ADDR="${DTB_ADDR:-0x81800000}"
 GDB_PORT="${GDB_PORT:-6699}"
@@ -89,6 +93,7 @@ GDB_ARGS=( -q "$PAYLOAD"
 )
 for h in $(seq 1 "$NUM_HARTS"); do
     GDB_ARGS+=( -ex "thread $h" -ex "set \$pc=_start" )
+    if [ -n "$PASS_DTB" ]; then GDB_ARGS+=( -ex "set \$a1=$DTB_ADDR" ); fi
 done
 GDB_ARGS+=( -ex "load" -ex "continue" )
 
