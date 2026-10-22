@@ -1,0 +1,11 @@
+/* Use only with hardware implementing Sscofpmf filtering and overflow IRQ 13. */
+/include/ "alsaqr-pmu-counting.dts"
+
+/ {
+    cpus {
+        cpu@0 { riscv,isa = "rv64imafdch_zicsr_zifencei_sscofpmf"; };
+        cpu@1 { riscv,isa = "rv64imafdch_zicsr_zifencei_sscofpmf"; };
+        cpu@2 { riscv,isa = "rv64imafdch_zicsr_zifencei_sscofpmf"; };
+        cpu@3 { riscv,isa = "rv64imafdch_zicsr_zifencei_sscofpmf"; };
+    };
+};

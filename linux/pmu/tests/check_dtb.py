@@ -5,6 +5,8 @@ import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("dtb")
+parser.add_argument("--sscofpmf", action="store_true",
+                    help="expect the sampling-capable hardware description")
 args = parser.parse_args()
 dtb = args.dtb
 
@@ -22,5 +24,5 @@ for event in range(1, 25):
     assert raw[(event-1)*5:event*5] == [0, event, 0xffffffff, 0xffffffff, 0x1f8]
 for hart in range(4):
     isa = subprocess.check_output(["fdtget", dtb, f"/cpus/cpu@{hart}", "riscv,isa"], text=True)
-    assert "sscofpmf" not in isa
+    assert ("sscofpmf" in isa) == args.sscofpmf, isa
 print("PMU DT PASS: 4 generic mappings, 24 exact raw mappings, 6 counters, 4 harts")
