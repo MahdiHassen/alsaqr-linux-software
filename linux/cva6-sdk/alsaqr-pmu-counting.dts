@@ -1,0 +1,3 @@
+/* Counting-only PMU description; preserve the socket platform configuration. */
+/include/ "alsaqr-socket.dts"
+/include/ "configs/cva6-pmu.dtsi"

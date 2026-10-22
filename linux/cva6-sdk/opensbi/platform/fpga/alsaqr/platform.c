@@ -9,10 +9,12 @@
 #include <sbi/riscv_io.h>
 #include <sbi/sbi_console.h>
 #include <sbi/sbi_const.h>
+#include <sbi/sbi_ecall_interface.h>
 #include <sbi/sbi_hart.h>
 #include <sbi/sbi_platform.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 #include <sbi_utils/fdt/fdt_fixup.h>
+#include <sbi_utils/fdt/fdt_pmu.h>
 #include <sbi_utils/ipi/aclint_mswi.h>
 #include <sbi_utils/irqchip/plic.h>
 #include <sbi_utils/serial/uart8250.h>
@@ -206,6 +208,18 @@ static int ariane_timer_init(bool cold_boot)
 /*
  * Platform descriptor.
  */
+static int alsaqr_pmu_init(void)
+{
+	return fdt_pmu_setup(fdt_get_address());
+}
+
+static uint64_t alsaqr_pmu_xlate(uint32_t event_idx, uint64_t data)
+{
+	if (event_idx == SBI_PMU_EVENT_RAW_IDX)
+		return data;
+	return fdt_pmu_get_select_value(event_idx);
+}
+
 const struct sbi_platform_operations platform_ops = {
 	.early_init = ariane_early_init,
 	.final_init = ariane_final_init,
@@ -213,6 +227,8 @@ const struct sbi_platform_operations platform_ops = {
 	.irqchip_init = ariane_irqchip_init,
 	.ipi_init = ariane_ipi_init,
 	.timer_init = ariane_timer_init,
+	.pmu_init = alsaqr_pmu_init,
+	.pmu_xlate_to_mhpmevent = alsaqr_pmu_xlate,
 };
 
 const struct sbi_platform platform = {
