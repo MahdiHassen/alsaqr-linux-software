@@ -620,8 +620,16 @@ static int pmu_fixed_ctr_update_inhibit_bits(int fixed_ctr, unsigned long flags)
 #if __riscv_xlen == 32
 	uint64_t cfgh_csr_no;
 #endif
-	if (!sbi_hart_has_extension(scratch, SBI_HART_EXT_SMCNTRPMF))
+	if (!sbi_hart_has_extension(scratch, SBI_HART_EXT_SMCNTRPMF)) {
+		/* Do not silently accept a scoped event on an unfiltered counter. */
+		if (flags & (SBI_PMU_CFG_FLAG_SET_VUINH |
+			     SBI_PMU_CFG_FLAG_SET_VSINH |
+			     SBI_PMU_CFG_FLAG_SET_UINH |
+			     SBI_PMU_CFG_FLAG_SET_SINH |
+			     SBI_PMU_CFG_FLAG_SET_MINH))
+			return SBI_ENOTSUPP;
 		return fixed_ctr;
+	}
 
 	switch (fixed_ctr) {
 	case 0:
