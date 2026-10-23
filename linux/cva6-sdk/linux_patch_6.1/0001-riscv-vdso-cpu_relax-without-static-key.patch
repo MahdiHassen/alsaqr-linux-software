@@ -1,0 +1,56 @@
+From: Emon Sarkar <esarkar@uwaterloo.ca>
+Subject: [PATCH] riscv: vdso: cpu_relax() without the Zihintpause static key
+
+arch/riscv/include/asm/vdso/processor.h is also compiled into the vDSO. There,
+riscv_isa_ext_keys is an undefined symbol whose GOT entry is never filled in,
+so with CONFIG_JUMP_LABEL unset the static_branch_likely() check reads the key
+through a NULL pointer. __vdso_clock_gettime() calls cpu_relax() only on its
+seqlock retry path, that is, when another hart is updating the vDSO time data
+at that moment, so user processes now and then segfault at address 0x4.
+dropbear catches SIGSEGV itself and exits without a log line, so SSH/scp
+sessions to the board just drop ("Connection reset by peer"): 4 of 30 16 MiB
+uploads on alsaqr_xilinx_ethernet.bit. With this patch: 20 of 20 on that
+bitstream and 20 of 20 on the OpenDRAM one.
+
+Always use the div stall. CVA6 on AlSaqr has no Zihintpause, so this is the
+branch that ran before. The kernel's own cpu_relax() loses the pause path too,
+which it never took here. AlSaqr-only patch, not meant for upstream as is.
+
+--- a/arch/riscv/include/asm/vdso/processor.h
++++ b/arch/riscv/include/asm/vdso/processor.h
+@@ -8,26 +8,19 @@
+ #include <asm/barrier.h>
+ #include <asm/hwcap.h>
+ 
++/*
++ * AlSaqr local fix: no static_branch here. This header is also compiled into the vDSO, where
++ * riscv_isa_ext_keys is not available: its GOT entry stays 0, so the Zihintpause check read
++ * address 0x4 and __vdso_clock_gettime() segfaulted whenever it had to retry (seqlock odd while
++ * another hart updated the vDSO data). CVA6 here has no Zihintpause, so the stall is what ran.
++ */
+ static inline void cpu_relax(void)
+ {
+-	if (!static_branch_likely(&riscv_isa_ext_keys[RISCV_ISA_EXT_KEY_ZIHINTPAUSE])) {
+ #ifdef __riscv_muldiv
+-		int dummy;
+-		/* In lieu of a halt instruction, induce a long-latency stall. */
+-		__asm__ __volatile__ ("div %0, %0, zero" : "=r" (dummy));
++	int dummy;
++	/* In lieu of a halt instruction, induce a long-latency stall. */
++	__asm__ __volatile__ ("div %0, %0, zero" : "=r" (dummy));
+ #endif
+-	} else {
+-		/*
+-		 * Reduce instruction retirement.
+-		 * This assumes the PC changes.
+-		 */
+-#ifdef CONFIG_TOOLCHAIN_HAS_ZIHINTPAUSE
+-		__asm__ __volatile__ ("pause");
+-#else
+-		/* Encoding of the pause instruction */
+-		__asm__ __volatile__ (".4byte 0x100000F");
+-#endif
+-	}
+ 	barrier();
+ }
+ 
