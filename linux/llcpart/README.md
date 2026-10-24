@@ -37,6 +37,13 @@ Read the "lines lost" column: shared, the aggressor evicts the idle victim's lin
 per hop under load say less, because the coherence unit serialises the two harts' transactions whatever the masks
 (the bare-metal `t_part` in he-soc measured the same).
 
+On a bitstream with the HPM series (he-soc 3c3b0fc0 and later, e.g. the OpenDRAM ones) `rdcycle` stands still under this
+Linux: the kernel's SBI PMU driver (`CONFIG_RISCV_PMU_SBI`) stops every counter when a CPU comes up and OpenSBI sets
+`mcountinhibit`, which the new CVA6 honours (the old one ignored it, so nobody noticed). The module therefore holds a
+perf cycles event on `victim_cpu` while loaded, which makes OpenSBI clear the inhibit bit there, and refuses to load if
+`rdcycle` still does not advance. Any user-space program that times with `rdcycle` on such a board sees the same freeze
+unless it opens a perf cycles event first; `rdtime` (25 MHz) keeps running.
+
 RCID 0, which every other hart and the kernel between measurements run under, is kept out of the victim's ways in
 the restricted cases; otherwise its few allocations evict the idle victim's lines, which are the least recently used.
 
@@ -57,6 +64,9 @@ set at which the chase falls off the LLC follows the ways exactly:
 | alone, 2 / 1 ways | 84 | 3845 / 4123 (thrash) |
 | shared 16 ways, aggressor on | 97 | 4220 |
 | partitioned 4 + 12, aggressor on | 97 | 320-520 |
+
+On the OpenDRAM bitstreams with 16x DRAM timing (alsaqr_opendram_ethernet_16x.bit and the merged-main build of
+2026-10-24) the sweep gives the same L1 and LLC numbers and 156 cycles per hop from DRAM instead of 74.
 
 Under load both cases cost ~97 cycles per hop: the coherence unit serialises the two harts (see he-soc
 `hardware/docs/qos.md`). The partition shows in what survives.

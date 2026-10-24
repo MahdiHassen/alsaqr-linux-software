@@ -36,6 +36,7 @@
 #include <linux/delay.h>
 #include <linux/random.h>
 #include <linux/cpumask.h>
+#include <linux/perf_event.h>
 #include <asm/csr.h>
 
 #define SOC_CTRL_PA     0x1A106000UL
@@ -239,11 +240,17 @@ static void run_case(const char *name, bool with_aggr)
 		name, c / hops, (c * 100 / hops) % 100, mw, hops, mp, nlines, cp / nlines, (cp * 100 / nlines) % 100);
 }
 
+static struct perf_event *cyc_ev;	/* keeps the cycle counter running on victim_cpu, see llcpart_init */
+
+static void rd_cycle_on(void *arg) { *(u64 *)arg = csr_read(CSR_CYCLE); }
+
 static int __init llcpart_init(void)
 {
 	u32 asso, sets, old_start, old_end;
 	int w, ret;
 	u32 vmask, amask;
+	struct perf_event_attr attr;
+	u64 c0, c1;
 
 	if (victim_kb < 64 || victim_kb > 4096 || aggr_kb < 64 || aggr_kb > 4096 || (victim_kb & (victim_kb - 1)) || (aggr_kb & (aggr_kb - 1)))
 		return -EINVAL;
@@ -251,6 +258,23 @@ static int __init llcpart_init(void)
 		return -EINVAL;
 	if (!cpu_online(victim_cpu) || !cpu_online(aggr_cpu) || victim_cpu == aggr_cpu)
 		return -EINVAL;
+	/* With the SBI PMU driver (CONFIG_RISCV_PMU_SBI) the kernel stops every counter when a CPU comes up and OpenSBI
+	 * sets mcountinhibit, which CVA6 honours since the HPM series (he-soc 3c3b0fc0): rdcycle stands still unless perf
+	 * has a cycles event on that CPU. Keep one alive on victim_cpu for the module's lifetime. */
+	memset(&attr, 0, sizeof(attr));
+	attr.type = PERF_TYPE_HARDWARE; attr.config = PERF_COUNT_HW_CPU_CYCLES; attr.size = sizeof(attr); attr.pinned = 1;
+	cyc_ev = perf_event_create_kernel_counter(&attr, victim_cpu, NULL, NULL, NULL);
+	if (IS_ERR(cyc_ev)) {
+		pr_warn("llcpart: no perf cycles event on cpu %d (%ld)\n", victim_cpu, PTR_ERR(cyc_ev));
+		cyc_ev = NULL;
+	}
+	smp_call_function_single(victim_cpu, rd_cycle_on, &c0, 1);
+	udelay(50);
+	smp_call_function_single(victim_cpu, rd_cycle_on, &c1, 1);
+	if (c1 == c0) {
+		pr_err("llcpart: rdcycle does not advance on cpu %d (counter inhibited by the SBI PMU); not loading\n", victim_cpu);
+		ret = -ENODEV; goto out_unmap;
+	}
 	sc = ioremap(SOC_CTRL_PA, 0x1000);
 	llc = ioremap(LLC_CFG_PA, 0x1000);
 	if (!sc || !llc) { ret = -ENOMEM; goto out_unmap; }
@@ -322,6 +346,7 @@ out_free:
 out_unmap:
 	if (sc) iounmap(sc);
 	if (llc) iounmap(llc);
+	if (cyc_ev) perf_event_release_kernel(cyc_ev);
 	return ret;
 }
 
@@ -331,6 +356,7 @@ static void __exit llcpart_exit(void)
 	free_pages((unsigned long)victim, victim_order);
 	free_pages((unsigned long)aggr, aggr_order);
 	iounmap(sc); iounmap(llc);
+	if (cyc_ev) perf_event_release_kernel(cyc_ev);
 	pr_info("llcpart: unloaded; masks reset, the LLC cached range stays 0x%08x-0x%08x\n", saved_start, (u32)RAM_TOP);
 }
 
